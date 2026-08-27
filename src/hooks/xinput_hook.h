@@ -18,4 +18,17 @@ namespace trinity::hooks
     // Real pad state, bypassing the menu-open neutralisation applied to the
     // game. Falls back to the plain export until the hooks are up.
     DWORD XInputReadReal(DWORD userIndex, XINPUT_STATE* state);
+
+    // Cached merged pad state across all live slots.
+    //
+    // Perf: XInputGetState on a connected pad can block ~1ms (USB poll sync).
+    // The old pattern - every caller scanning all 4 slots, several callers per
+    // frame - cost 2-4ms per frame at high refresh rates and halved FPS with a
+    // controller attached (CPU-bound, GPU idling). This polls at most one
+    // refresh per ~4ms window, only slots that recently answered, and rescans
+    // all four slots every 2s so hot-plugs are still picked up.
+    //
+    // Merges button/trigger states and first-moved thumbsticks across slots.
+    // Returns true if any pad answered. Safe from multiple threads.
+    bool ReadPadsCached(XINPUT_STATE& merged);
 }

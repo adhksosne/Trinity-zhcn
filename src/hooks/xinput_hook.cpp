@@ -137,4 +137,75 @@ namespace trinity::hooks
             return g_read(userIndex, state);
         return XInputGetState(userIndex, state); // hooks not up yet
     }
+
+    // --- Cached pad scan ------------------------------------------------------
+    // See header for the rationale. Plain statics (not atomics): the two
+    // callers are the render thread and the game tick; a benign race at worst
+    // causes one redundant scan window, never a wrong merged state.
+    static DWORD     g_liveSlots  = 0;   // bitmask of slots that answered recently
+    static ULONGLONG s_nextRescan = 0;   // next full 4-slot scan deadline
+    static ULONGLONG s_cacheT     = 0;   // when the merged state below was taken
+    static bool      s_cacheOk    = false;
+    static XINPUT_STATE s_cache   = {};
+
+    bool ReadPadsCached(XINPUT_STATE& merged)
+    {
+        const ULONGLONG now = GetTickCount64();
+
+        if (now < s_cacheT + 4 && now >= s_cacheT)
+        {
+            merged = s_cache;           // within the refresh window
+            return s_cacheOk;
+        }
+
+        if (now >= s_nextRescan)
+        {
+            DWORD mask = 0;
+            for (DWORD i = 0; i < 4; ++i)
+            {
+                XINPUT_STATE st;
+                if (XInputReadReal(i, &st) == ERROR_SUCCESS)
+                    mask |= (1u << i);
+            }
+            g_liveSlots  = mask;
+            s_nextRescan = now + 2000;
+        }
+
+        ZeroMemory(&merged, sizeof(merged));
+        bool any = false;
+        for (DWORD i = 0; i < 4; ++i)
+        {
+            if (!(g_liveSlots & (1u << i)))
+                continue;
+            XINPUT_STATE st;
+            if (XInputReadReal(i, &st) == ERROR_SUCCESS)
+            {
+                any = true;
+                merged.Gamepad.wButtons |= st.Gamepad.wButtons;
+                if (st.Gamepad.bLeftTrigger  > merged.Gamepad.bLeftTrigger)
+                    merged.Gamepad.bLeftTrigger  = st.Gamepad.bLeftTrigger;
+                if (st.Gamepad.bRightTrigger > merged.Gamepad.bRightTrigger)
+                    merged.Gamepad.bRightTrigger = st.Gamepad.bRightTrigger;
+                if (merged.Gamepad.sThumbLX == 0 && merged.Gamepad.sThumbLY == 0)
+                {
+                    merged.Gamepad.sThumbLX = st.Gamepad.sThumbLX;
+                    merged.Gamepad.sThumbLY = st.Gamepad.sThumbLY;
+                }
+                if (merged.Gamepad.sThumbRX == 0 && merged.Gamepad.sThumbRY == 0)
+                {
+                    merged.Gamepad.sThumbRX = st.Gamepad.sThumbRX;
+                    merged.Gamepad.sThumbRY = st.Gamepad.sThumbRY;
+                }
+            }
+            else
+            {
+                g_liveSlots &= ~(1u << i); // dropped; the 2s rescan re-adds it
+            }
+        }
+
+        s_cache   = merged;
+        s_cacheOk = any;
+        s_cacheT  = now;
+        return any;
+    }
 }

@@ -415,59 +415,12 @@ namespace trinity::ui
     }
 
     // --- Controller -----------------------------------------------------------
-    // XInputGetState on a disconnected slot is expensive, so back off between
-    // reconnect attempts.
+    // Delegates to the cached poller in the XInput hook: polling all four
+    // slots from every call site every frame was eating milliseconds per
+    // frame with a controller attached (see hooks::ReadPadsCached).
     static bool PollPad(XINPUT_STATE& out)
     {
-        static bool      s_connected = false;
-        static ULONGLONG s_nextRetry = 0;
-
-        const ULONGLONG now = GetTickCount64();
-        if (!s_connected && now < s_nextRetry)
-            return false;
-
-        ZeroMemory(&out, sizeof(out));
-        bool anyConnected = false;
-
-        // Read the REAL pad across slots 0-3, bypassing the menu-open neutralisation
-        // the XInput hook applies to the game. Merge states so an idle virtual controller
-        // on slot 0 doesn't mask a real controller on slot 1.
-        for (DWORD i = 0; i < 4; ++i)
-        {
-            XINPUT_STATE temp;
-            if (hooks::XInputReadReal(i, &temp) == ERROR_SUCCESS)
-            {
-                anyConnected = true;
-                out.Gamepad.wButtons |= temp.Gamepad.wButtons;
-                
-                if (temp.Gamepad.bLeftTrigger > out.Gamepad.bLeftTrigger)
-                    out.Gamepad.bLeftTrigger = temp.Gamepad.bLeftTrigger;
-                if (temp.Gamepad.bRightTrigger > out.Gamepad.bRightTrigger)
-                    out.Gamepad.bRightTrigger = temp.Gamepad.bRightTrigger;
-                    
-                // Use the thumbstick values from the first controller that has them moved
-                if (out.Gamepad.sThumbLX == 0 && out.Gamepad.sThumbLY == 0)
-                {
-                    out.Gamepad.sThumbLX = temp.Gamepad.sThumbLX;
-                    out.Gamepad.sThumbLY = temp.Gamepad.sThumbLY;
-                }
-                if (out.Gamepad.sThumbRX == 0 && out.Gamepad.sThumbRY == 0)
-                {
-                    out.Gamepad.sThumbRX = temp.Gamepad.sThumbRX;
-                    out.Gamepad.sThumbRY = temp.Gamepad.sThumbRY;
-                }
-            }
-        }
-        
-        if (anyConnected)
-        {
-            s_connected = true;
-            return true;
-        }
-
-        s_connected = false;
-        s_nextRetry = now + 2000;
-        return false;
+        return hooks::ReadPadsCached(out);
     }
 
     unsigned short PadButtons()

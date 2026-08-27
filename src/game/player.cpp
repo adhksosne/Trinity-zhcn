@@ -17,6 +17,7 @@
 #include "../mem/safe_memory.h"
 #include "../mem/hooks.h"
 #include "../core/logger.h"
+#include "../hooks/xinput_hook.h"
 #include "../core/state.h"
 
 namespace trinity::game
@@ -326,15 +327,15 @@ namespace trinity::game
                 (GetAsyncKeyState('F') & 0x8000) != 0)
                 return true;
 
+            // Cached poller: the old 4-slot raw scan here (plus the same
+            // pattern in the menu) cost milliseconds per frame with a pad
+            // attached. See hooks::ReadPadsCached.
             XINPUT_STATE xs{};
-            for (DWORD i = 0; i < 4; ++i)
+            if (hooks::ReadPadsCached(xs))
             {
-                if (XInputGetState(i, &xs) == ERROR_SUCCESS)
-                {
-                    if ((xs.Gamepad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER) != 0 ||
-                        xs.Gamepad.bLeftTrigger > 30)
-                        return true;
-                }
+                if ((xs.Gamepad.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER) != 0 ||
+                    xs.Gamepad.bLeftTrigger > 30)
+                    return true;
             }
             return false;
         }
