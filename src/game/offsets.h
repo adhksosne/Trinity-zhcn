@@ -1195,12 +1195,14 @@ namespace trinity::game
     //   +0x54   = time-scale float (1.0 = standard simulation speed)
     // Each frame, before calling the original, we set the flag and write the
     // multiplier directly as the scale, so the whole simulation (anim, physics,
-    // AI, ability timers) advances at gameSpeedMult. The engine clamps the
-    // scale's upper bound to 1.0, so >1.0x runs at standard speed - the
-    // effective span is slow-motion 0.10x..0.95x plus normal at >=1.0x, which
-    // matches the upstream 2.0 behavior. The BSS path in World::Tick is a
-    // 1.17/1.18 fallback that self-disables when kSig_GameSpeed drifts; the
-    // two coexist without conflict (the live struct vs dead globals).
+    // AI, ability timers) advances at gameSpeedMult. The scale is a direct
+    // sim-time multiplier with NO upper clamp (live-confirmed 2026-08-28 on
+    // 2.00.00): 0.10x is 1/10 speed, 1.0x is standard, 5.0x is a true 5x
+    // speedup - the full 0.10..5.0 slider span works, both slow-mo and
+    // fast-forward. (The upstream 2.0 N网 blurb claims >1.0x caps at standard;
+    // empirically it does not.) The BSS path in World::Tick is a 1.17/1.18
+    // fallback that self-disables when kSig_GameSpeed drifts; the two coexist
+    // without conflict (the live struct vs dead globals).
     inline constexpr const char* kSig_MasterFrameUpdate =
         "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 41 56 41 57 "
         "48 81 EC D0 01 00 00 C5 F8 29 70 D8";

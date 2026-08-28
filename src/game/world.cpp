@@ -96,8 +96,9 @@ namespace trinity::game
         // override enable flag byte (+0x50, cleared by the engine after each
         // apply) and the time-scale float (+0x54, 1.0 = normal). We set them
         // each frame before calling the original so the simulation runs at
-        // gameSpeedMult; the engine clamps >1.0x to standard, so the effective
-        // range is slow-motion 0.10x..0.95x + normal at >=1.0x. When the toggle
+        // gameSpeedMult; the scale is a direct sim-time multiplier with NO
+        // upper clamp, so the full 0.10..5.0 slider span works (live-confirmed
+        // on 2.00.00: both slow-mo and true fast-forward). When the toggle
         // is off we clear the flag and restore 1.0x once per frame; the BSS
         // path in Tick() is an independent 1.17/1.18 fallback (different memory).
         using MasterFrameUpdate_t = __int64(__fastcall*)(void* a1);
