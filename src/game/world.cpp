@@ -90,6 +90,45 @@ namespace trinity::game
             return v < lo ? lo : (v > hi ? hi : v);
         }
 
+        // --- Game Speed: master frame-update hook (v2.00.00 primary path) ------
+        // See offsets.h kSig_MasterFrameUpdate. The frame-update context (a1)
+        // carries the timing struct pointer at +0x60; that struct holds the
+        // override enable flag byte (+0x50, cleared by the engine after each
+        // apply) and the time-scale float (+0x54, 1.0 = normal). We set them
+        // each frame before calling the original so the simulation runs at
+        // gameSpeedMult; the engine clamps >1.0x to standard, so the effective
+        // range is slow-motion 0.10x..0.95x + normal at >=1.0x. When the toggle
+        // is off we clear the flag and restore 1.0x once per frame; the BSS
+        // path in Tick() is an independent 1.17/1.18 fallback (different memory).
+        using MasterFrameUpdate_t = __int64(__fastcall*)(void* a1);
+        MasterFrameUpdate_t oMasterFrameUpdate = nullptr;
+        void* g_masterFrameTarget = nullptr;
+
+        __int64 __fastcall hkMasterFrameUpdate(void* a1)
+        {
+            if (a1)
+            {
+                uintptr_t timing = 0;
+                if (mem::ReadPtr(reinterpret_cast<uintptr_t>(a1) + kOff_MasterFrame_TimingDisp, &timing)
+                    && timing >= kMinPointer)
+                {
+                    const State& st = State::Get();
+                    if (st.gameSpeed)
+                    {
+                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 5.0f);
+                        Write8(timing + kOff_Timing_Flag, 1);
+                        Write32(timing + kOff_Timing_Scale, FloatBits(mult));
+                    }
+                    else
+                    {
+                        Write8(timing + kOff_Timing_Flag, 0);
+                        Write32(timing + kOff_Timing_Scale, FloatBits(1.0f));
+                    }
+                }
+            }
+            return oMasterFrameUpdate(a1);
+        }
+
         bool ReadI32(uintptr_t addr, int* out)
         {
             uint32_t bits = 0;
@@ -448,6 +487,18 @@ namespace trinity::game
             }
         }
 
+        // v2.00.00 primary path: the BSS override globals above are dead in
+        // 2.0, so hook the master frame-update function and drive the live
+        // timing struct directly (see offsets.h kSig_MasterFrameUpdate).
+        // Independent of the BSS path - Game Speed works via whichever resolves
+        // on this build (the hook on 2.0, the BSS globals on 1.17/1.18), and
+        // Ready() reflects either. Non-fatal: a drift here leaves Time of Day
+        // untouched.
+        if (!mem::InstallHook("world: master frame update", kSig_MasterFrameUpdate,
+                              "Game Speed timescale unavailable", hkMasterFrameUpdate,
+                              &oMasterFrameUpdate, &g_masterFrameTarget))
+            ok = false;
+
         // Time of Day resolves independently - Game Speed still works if this
         // signature drifts, and vice versa. Advance needs the clock globals...
         if (!ResolveFieldTimeGlobals())
@@ -694,6 +745,12 @@ namespace trinity::game
         g_applied  = false;
         g_flagAddr = g_valueAddr = 0;
 
+        // Unhook the master frame-update (v2.00.00 path). The engine's override
+        // flag self-clears after each apply, so once the detour is gone the sim
+        // resumes its own real-time timing with no stale flag left behind.
+        mem::RemoveHook(&g_masterFrameTarget);
+        oMasterFrameUpdate = nullptr;
+
         // Restore the render manager's time-of-day limits if we were holding
         // the sun, then forget the engine global.
         if (g_todClampApplied)
@@ -726,7 +783,11 @@ namespace trinity::game
 
     bool World::Ready()
     {
-        return g_flagAddr >= kMinPointer && g_valueAddr >= kMinPointer;
+        // Game Speed is available if EITHER the v2.00.00 master frame-update
+        // hook installed OR the 1.17/1.18 BSS override globals resolved - the
+        // live build picks one, and the menu toggle reflects it.
+        return g_masterFrameTarget != nullptr
+            || (g_flagAddr >= kMinPointer && g_valueAddr >= kMinPointer);
     }
 
     bool World::TimeOfDayReady()

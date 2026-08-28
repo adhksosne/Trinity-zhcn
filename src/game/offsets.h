@@ -1183,6 +1183,31 @@ namespace trinity::game
     // 60-FPS-equivalent step; see World::Tick.
     inline constexpr float     kGameSpeed_BaselineFps     = 60.0f;
 
+    // --- Game Speed: master frame-update hook (v2.00.00 primary path) --------
+    // In v2.00.00 the engine moved the fixed-timestep override OFF the static
+    // BSS globals above (which still signature-match but now resolve to dead
+    // addresses and silently no-op - so Game Speed broke after the 2.0 patch)
+    // and onto an INSTANCE struct reached through the master frame-update
+    // manager. The v2.0 adaptation hooks the frame-update function itself:
+    //   a1      = frame-update context (the manager)
+    //   a1+0x60 = pointer to the timing struct
+    //   +0x50   = override enable flag byte (engine clears it after each apply)
+    //   +0x54   = time-scale float (1.0 = standard simulation speed)
+    // Each frame, before calling the original, we set the flag and write the
+    // multiplier directly as the scale, so the whole simulation (anim, physics,
+    // AI, ability timers) advances at gameSpeedMult. The engine clamps the
+    // scale's upper bound to 1.0, so >1.0x runs at standard speed - the
+    // effective span is slow-motion 0.10x..0.95x plus normal at >=1.0x, which
+    // matches the upstream 2.0 behavior. The BSS path in World::Tick is a
+    // 1.17/1.18 fallback that self-disables when kSig_GameSpeed drifts; the
+    // two coexist without conflict (the live struct vs dead globals).
+    inline constexpr const char* kSig_MasterFrameUpdate =
+        "48 8B C4 48 89 58 10 48 89 68 18 48 89 70 20 57 41 56 41 57 "
+        "48 81 EC D0 01 00 00 C5 F8 29 70 D8";
+    inline constexpr uintptr_t kOff_MasterFrame_TimingDisp = 0x60; // a1 -> timing struct ptr
+    inline constexpr uintptr_t kOff_Timing_Flag  = 0x50;          // override enable flag byte
+    inline constexpr uintptr_t kOff_Timing_Scale = 0x54;          // time-scale float (1.0 = normal)
+
     // --- Time of Day: the master field clock (World feature, world.cpp) -------
     // The REAL day/night clock is two BSS globals (client / server realm), each
     // a 32-byte struct of int32s. The per-frame sun/sky update reads them (IDB
