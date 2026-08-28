@@ -91,7 +91,10 @@ namespace trinity
         // Map Marker Teleport (teleport.cpp). Teleports to the custom waypoint
         // placed on the world map. Rebindable from the Keybinds submenu (default
         // F10 key) and persisted in Trinity.ini. Fallback height is used when the
-        // marker has no elevation (sky insertion).
+        // marker has no elevation (sky insertion). The hotkey is OFF by default:
+        // other fast-travel mods commonly bind the same key (F10), so it must be
+        // enabled explicitly to avoid hijacking their bind.
+        bool         markerTeleportHotkey = false;
         int          markerTeleportKeyVk  = 0x79;  // VK_F10
         unsigned int markerTeleportPadMask = 0;     // Disabled on pad by default
         float        markerFallbackHeight = 1200.0f;

@@ -2879,6 +2879,11 @@ namespace trinity::gui
                          &s_curMenu, &st.openKeyVk, &st.openPadMask,
                          def.openKeyVk, def.openPadMask,
                          BindTarget::MenuKey, BindTarget::MenuPad);
+        if (ui::Toggle(LOC("Marker Teleport Hotkey"),
+                       &st.markerTeleportHotkey,
+                       LOC("Enables the Marker Teleport key/button. Off by default so it never "
+                           "hijacks another fast-travel mod's bind (both default to F10).")) && st.autoSave)
+            Settings::Save();
         KeybindActionRow(LOC("Marker Teleport"), LOC("Teleport directly to the map marker / custom waypoint placed on the map."),
                          &s_curMarker, &st.markerTeleportKeyVk, &st.markerTeleportPadMask,
                          def.markerTeleportKeyVk, def.markerTeleportPadMask,

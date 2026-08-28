@@ -924,8 +924,11 @@ namespace trinity::hooks
         if (ui::PollMenuToggle())
             st.menuOpen = !st.menuOpen;
 
-        // Marker Teleport hotkey (polled when menu and text captures are not active)
-        if (!st.menuOpen && !st.textCapture && !st.rebindCapture)
+        // Marker Teleport hotkey (polled when menu and text captures are not
+        // active). Gated behind st.markerTeleportHotkey, which defaults OFF:
+        // other fast-travel mods commonly bind the same key (F10), so the bind
+        // only starts hijacking input once the user enables the feature.
+        if (!st.menuOpen && !st.textCapture && !st.rebindCapture && st.markerTeleportHotkey)
         {
             bool kbdHit = false;
             if (st.markerTeleportKeyVk != 0)
