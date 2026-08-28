@@ -293,7 +293,7 @@ namespace trinity::gui
         const bool isMount = (game::Dye::GetTargetMode() == 1);
         if (isMount)
         {
-            static const char* const kMountNames[] = { "Active Mount", "Mount 2", "Mount 3", "Mount 4" };
+            static const char* const kMountNames[] = { LOC("Active Mount"), LOC("Mount 2"), LOC("Mount 3"), LOC("Mount 4") };
             int mountIdx = game::Dye::GetActiveMount();
             if (ui::Combo(LOC("Target Mount"), &mountIdx, kMountNames, 4, LOC("Select active horse or mount to dye.")))
             {
@@ -446,8 +446,8 @@ namespace trinity::gui
         const int maxZones = 12;
 
         static const char* const kZoneItems[] = {
-            "All zones", "Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6",
-            "Zone 7", "Zone 8", "Zone 9", "Zone 10", "Zone 11", "Zone 12"
+            LOC("All zones"), LOC("Zone 1"), LOC("Zone 2"), LOC("Zone 3"), LOC("Zone 4"), LOC("Zone 5"), LOC("Zone 6"),
+            LOC("Zone 7"), LOC("Zone 8"), LOC("Zone 9"), LOC("Zone 10"), LOC("Zone 11"), LOC("Zone 12")
         };
         const int comboCount = 1 + maxZones;
         if (s_dyeChan >= comboCount) s_dyeChan = 0;
@@ -457,7 +457,12 @@ namespace trinity::gui
         if (!s_famInit)
         {
             for (int i = 0; i < game::kDyeFamilyCount; ++i)
-                s_famItems[i] = game::kDyeFamilies[i].name;
+            {
+                // Localize the display name (all 10 are plain colour words) so
+                // the family picker shows Chinese; the engine colour-group key
+                // (game::kDyeFamilies[i].stringKey) is untouched for the record.
+                s_famItems[i] = LOC(game::kDyeFamilies[i].name);
+            }
             s_famInit = true;
         }
 
@@ -497,8 +502,8 @@ namespace trinity::gui
             }
 
             const int hit = ui::SwatchRow("", rgb, cnt, &s_dyeCursor[row], mark,
-                neutral ? "Pick a tone, or the first swatch to remove the dye."
-                        : "Pick a color to dye it right away.",
+                neutral ? LOC("Pick a tone, or the first swatch to remove the dye.")
+                        : LOC("Pick a color to dye it right away."),
                 neutral ? 0 : -1);
             if (hit >= 0)
             {
