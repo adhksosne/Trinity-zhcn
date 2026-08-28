@@ -161,6 +161,56 @@ namespace trinity::game
         bool g_markerProtectionReady = false;
         std::vector<InlineHook> g_markerHooks;
 
+        // v2.00.00 destination capture (upstream 0.17.1 sub_180011F10). In 2.0
+        // the engine updates the map marker / waypoint destination through this
+        // function; its 3rd arg (a3) points at the fresh world x,y,z. The legacy
+        // kSig_MarkerPattern capture no longer matches in 2.0, so this hook is
+        // the primary marker coordinate source there - FindActiveMarker falls
+        // back to it. NOTE: a3 is an engine argument and may live at a low
+        // address (below kMinPointer), exactly like the loco-stepper's arg3 -
+        // it must be read raw + SEH-guarded, never through mem::ReadPtr.
+        std::atomic<bool> g_destCaptured{false};
+        std::atomic<float> g_destX{0.0f}, g_destY{0.0f}, g_destZ{0.0f};
+
+        using DestinationUpdate_t = uint64_t(__fastcall*)(uint64_t, uint64_t, const float*, uint64_t);
+        DestinationUpdate_t oDestinationUpdate = nullptr;
+        void* g_destinationUpdateTarget = nullptr;
+
+        uint64_t __fastcall hkDestinationUpdate(uint64_t a1, uint64_t a2, const float* dest, uint64_t a4)
+        {
+            float x = 0.0f, y = 0.0f, z = 0.0f;
+            bool ok = false;
+            __try
+            {
+                // Raw read: the caller's stack argument may be far below
+                // kMinPointer; reading it is safe because the callee is about
+                // to dereference it anyway.
+                x = dest[0];
+                y = dest[1];
+                z = dest[2];
+                ok = true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+            if (ok)
+            {
+                // NaN / non-finite guard (matches upstream: rejects NaN bit
+                // patterns before publishing the coordinate).
+                const auto isNanBits = [](float f) {
+                    uint32_t bits = 0;
+                    memcpy(&bits, &f, sizeof(bits));
+                    return (bits & 0x7F800000u) == 0x7F800000u;
+                };
+                if (!isNanBits(x) && !isNanBits(y) && !isNanBits(z))
+                {
+                    g_destX.store(x, std::memory_order_relaxed);
+                    g_destY.store(y, std::memory_order_relaxed);
+                    g_destZ.store(z, std::memory_order_relaxed);
+                    g_destCaptured.store(true, std::memory_order_release);
+                }
+            }
+            return oDestinationUpdate(a1, a2, dest, a4);
+        }
+
         class ThreadSuspender final
         {
         public:
@@ -544,11 +594,23 @@ namespace trinity::game
             const auto origins = mem::FindAllMatches(kSig_MarkerOriginPrefix, 32);
             const auto protections = mem::FindAllMatches(kSig_MarkerProtection, 2);
 
-            if (markers.size() != kExpected_MarkerMatches || origins.size() < 6)
+            if (origins.size() != 9 && origins.size() != 11)
             {
-                LOG_WARN("teleport: marker signatures count mismatch (markers=%zu exp=%zu, origins=%zu)",
-                         markers.size(), kExpected_MarkerMatches, origins.size());
+                LOG_WARN("teleport: marker origin signature count mismatch (origins=%zu exp=9 or 11)",
+                         origins.size());
                 return false;
+            }
+
+            // v2.00.00: kSig_MarkerPattern no longer matches (the upstream 2.0
+            // adaptation dropped the pattern hooks entirely). The destination-
+            // update hook provides the marker coordinates in that case, so a
+            // pattern mismatch is a warning, not fatal - as long as the world
+            // origin resolves, the subsystem is usable.
+            if (markers.size() != kExpected_MarkerMatches)
+            {
+                LOG_WARN("teleport: marker pattern count mismatch (markers=%zu exp=%zu) - "
+                         "relying on the destination-update hook for marker coordinates.",
+                         markers.size(), kExpected_MarkerMatches);
             }
 
             std::unordered_map<uintptr_t, size_t> originVotes;
@@ -602,9 +664,20 @@ namespace trinity::game
 
             if (installedHooks == 0)
             {
-                LOG_WARN("teleport: no marker hooks could be installed.");
-                RemoveMarkerHooks();
-                return false;
+                // v2.00.00: the pattern hooks are gone, but the destination-
+                // update hook is the marker source - keep the subsystem usable
+                // when it resolved (installed before InitMarkerSubsystem runs).
+                if (g_destinationUpdateTarget)
+                {
+                    LOG_WARN("teleport: no marker hooks could be installed - "
+                             "relying on the destination-update hook for marker coordinates.");
+                }
+                else
+                {
+                    LOG_WARN("teleport: no marker hooks could be installed.");
+                    RemoveMarkerHooks();
+                    return false;
+                }
             }
 
             if (protections.size() == 1)
@@ -675,6 +748,21 @@ namespace trinity::game
                 marker = bestMarker;
                 return true;
             }
+
+            // v2.00.00 fallback: the legacy marker-pattern capture no longer
+            // matches in 2.0, so the destination-update hook (hkDestinationUpdate)
+            // is the marker source there. Its captured coordinates are world
+            // x,y,z exactly like the pattern capture produced.
+            if (g_destCaptured.load(std::memory_order_acquire))
+            {
+                marker.x = g_destX.load(std::memory_order_relaxed);
+                marker.y = g_destY.load(std::memory_order_relaxed);
+                marker.z = g_destZ.load(std::memory_order_relaxed);
+                if (ValidMarker(marker))
+                {
+                    return true;
+                }
+            }
             return false;
         }
 
@@ -686,6 +774,7 @@ namespace trinity::game
                 slot.xyBits.store(0, std::memory_order_relaxed);
                 slot.zBits.store(0, std::memory_order_relaxed);
             }
+            g_destCaptured.store(false, std::memory_order_release);
         }
 
         // Calls a data-table resolver (game thread only - it lazy-loads the
@@ -1752,6 +1841,15 @@ namespace trinity::game
         mem::InstallHook("teleport: locomotion-stepper", kSig_LocoStepper, "Super Run disabled",
                          &hkLocoStep, &oLocoStep, &g_locoStepTarget);
 
+        // v2.00.00 destination-update hook: the primary marker coordinate
+        // source in 2.0 (the legacy kSig_MarkerPattern capture no longer
+        // matches there). Installed before InitMarkerSubsystem so its degrade
+        // paths can rely on this being present. Non-fatal - on 1.17/1.18 the
+        // pattern capture stays the source and FindActiveMarker prefers it.
+        mem::InstallHook("teleport: destination-update", kSig_DestinationUpdate,
+                         "Teleport to Destination disabled", hkDestinationUpdate,
+                         &oDestinationUpdate, &g_destinationUpdateTarget);
+
         // Map Marker Teleport subsystem (clean-room marker capture from crimsondesert-main).
         InitMarkerSubsystem();
 
@@ -1762,6 +1860,9 @@ namespace trinity::game
     {
         RemoveMarkerHooks();
         g_markerReady = false;
+        g_destCaptured.store(false, std::memory_order_release);
+        mem::RemoveHook(&g_destinationUpdateTarget);
+        oDestinationUpdate = nullptr;
         mem::RemoveHook(&g_locoStepTarget);
         mem::RemoveHook(&g_moveUpdateTarget);
         g_posValid.store(false, std::memory_order_relaxed);

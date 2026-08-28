@@ -527,6 +527,18 @@ namespace trinity::game
     inline constexpr float     kMarker_CoordLimit = 1.0e9f;
     inline constexpr float     kMarker_DestLift   = 10.0f;
 
+    // --- Destination-update hook (v2.00.00 marker/waypoint coordinate source) ---
+    // In v2.00.00 the engine updates the map marker / waypoint destination
+    // through this function (upstream 0.17.1, IDB sub_180011F10 hooks it).
+    // Its 3rd arg (a3) points at the fresh world destination (x,y,z). Hooking it
+    // captures the marker coordinates exactly like the legacy kSig_MarkerPattern
+    // hooks did on 1.17/1.18 - the two coexist (pattern first, fallback here).
+    // a3 is an engine argument that may sit below kMinPointer, so the hook reads
+    // it raw + SEH-guarded (never through mem::ReadPtr).
+    inline constexpr const char* kSig_DestinationUpdate =
+        "48 8B C4 48 89 58 10 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 "
+        "48 8D 68 ?? 48 81 EC ?? ?? ?? ?? C5 F8 29 70 ?? 49 8B F8";
+
     // --- Inventory: item enumeration + quantity editing ---------------------
     // The player's inventory needs no pointer chain from the player object:
     // GetItemQuantity (IDB sub_14A1330) is called by the HUD every time it shows
