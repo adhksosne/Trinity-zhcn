@@ -1077,37 +1077,37 @@ namespace trinity::ui
         {
             switch (k)
             {
-            case RowKind::Action:  return "A select";
-            case RowKind::Toggle:  return "A toggle";
-            case RowKind::ToggleValue: return "A toggle   < > adjust   X reset";
-            case RowKind::Value:   return "< > adjust   X reset";
-            case RowKind::Choice:  return "< > pick";
-            case RowKind::Submenu: return "A open";
-            case RowKind::Search:  return "A type   X clear";
-            case RowKind::Typing:  return "A done   B erase";
-            case RowKind::TypingApply: return "A apply   B erase";
-            case RowKind::Item:    return "< > amount   X remove";
-            case RowKind::ItemAdd: return "< > amount   A add";
-            case RowKind::ValueAction: return "< > amount   A apply   X reset";
-            case RowKind::Bind:    return "< > pick   A rebind   X reset";
+            case RowKind::Action:  return LOC("A select");
+            case RowKind::Toggle:  return LOC("A toggle");
+            case RowKind::ToggleValue: return LOC("A toggle   < > adjust   X reset");
+            case RowKind::Value:   return LOC("< > adjust   X reset");
+            case RowKind::Choice:  return LOC("< > pick");
+            case RowKind::Submenu: return LOC("A open");
+            case RowKind::Search:  return LOC("A type   X clear");
+            case RowKind::Typing:  return LOC("A done   B erase");
+            case RowKind::TypingApply: return LOC("A apply   B erase");
+            case RowKind::Item:    return LOC("< > amount   X remove");
+            case RowKind::ItemAdd: return LOC("< > amount   A add");
+            case RowKind::ValueAction: return LOC("< > amount   A apply   X reset");
+            case RowKind::Bind:    return LOC("< > pick   A rebind   X reset");
             default:               return "";
             }
         }
         switch (k)
         {
-        case RowKind::Action:  return "Enter select";
-        case RowKind::Toggle:  return "Enter toggle";
-        case RowKind::ToggleValue: return "Enter toggle   < > adjust   Del reset";
-        case RowKind::Value:   return "< > adjust   Enter type   Del reset";
-        case RowKind::Choice:  return "< > pick";
-        case RowKind::Submenu: return "Enter open";
-        case RowKind::Search:  return "Enter type   Del clear";
-        case RowKind::Typing:  return "Enter done   Bksp erase";
-        case RowKind::TypingApply: return "Enter apply   Bksp erase";
-        case RowKind::Item:    return "< > amount   Enter type   Del remove";
-        case RowKind::ItemAdd: return "< > amount   Enter add";
-        case RowKind::ValueAction: return "< > amount   Enter type   Del reset";
-        case RowKind::Bind:    return "< > pick   Enter rebind   Del reset";
+        case RowKind::Action:  return LOC("Enter select");
+        case RowKind::Toggle:  return LOC("Enter toggle");
+        case RowKind::ToggleValue: return LOC("Enter toggle   < > adjust   Del reset");
+        case RowKind::Value:   return LOC("< > adjust   Enter type   Del reset");
+        case RowKind::Choice:  return LOC("< > pick");
+        case RowKind::Submenu: return LOC("Enter open");
+        case RowKind::Search:  return LOC("Enter type   Del clear");
+        case RowKind::Typing:  return LOC("Enter done   Bksp erase");
+        case RowKind::TypingApply: return LOC("Enter apply   Bksp erase");
+        case RowKind::Item:    return LOC("< > amount   Enter type   Del remove");
+        case RowKind::ItemAdd: return LOC("< > amount   Enter add");
+        case RowKind::ValueAction: return LOC("< > amount   Enter type   Del reset");
+        case RowKind::Bind:    return LOC("< > pick   Enter rebind   Del reset");
         default:               return "";
         }
     }
@@ -1174,8 +1174,8 @@ namespace trinity::ui
                         theme::TextDim, LeftHint(g_padActive, g_hintKind));
 
             const char* right = g_padActive
-                                    ? (atRoot ? "B close   LB/RB tab" : "B back   LB/RB tab")
-                                    : (atRoot ? "Bksp close   Q/E tab" : "Bksp back   Q/E tab");
+                                    ? (atRoot ? LOC("B close   LB/RB tab") : LOC("B back   LB/RB tab"))
+                                    : (atRoot ? LOC("Bksp close   Q/E tab") : LOC("Bksp back   Q/E tab"));
             const ImVec2 rs = g_fontBody->CalcTextSizeA(hintSz, FLT_MAX, 0.0f, right);
             dl->AddText(g_fontBody, hintSz,
                         ImVec2(g_x + g_width - rs.x - 12.0f * s, cy - hintSz * 0.5f),

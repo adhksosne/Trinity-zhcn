@@ -1079,7 +1079,7 @@ namespace trinity::ui
             else
             {
                 snprintf(text, sizeof(text), "%s",
-                         buf[0] ? buf : g_padActive ? "A to edit" : "Enter to edit");
+                         buf[0] ? buf : g_padActive ? LOC("A to edit") : LOC("Enter to edit"));
             }
 
             const ImU32 col = typing      ? theme::TextBright
@@ -1393,9 +1393,9 @@ namespace trinity::ui
         // out what the next press does - the whole point of confirming is lost
         // if the row looks unchanged.
         if (armed && r.selected)
-            snprintf(g_selectedDesc, sizeof(g_selectedDesc),
-                     "Remove %s for good? This cannot be undone - press %s again to "
-                     "confirm, or move away to keep it.",
+            snprintf(g_selectedDesc, sizeof(g_selectedDesc), "%s",
+                     LOC("Remove %s for good? This cannot be undone - press %s again to "
+                         "confirm, or move away to keep it."),
                      label, g_padActive ? "X" : "Del");
 
         if (editing)
@@ -1407,7 +1407,7 @@ namespace trinity::ui
         {
             // Short enough to sit in the value column - the description carries
             // the actual warning.
-            DrawRowValue(r, "Remove?", false, theme::Accent);
+            DrawRowValue(r, LOC("Remove?"), false, theme::Accent);
         }
         else
         {

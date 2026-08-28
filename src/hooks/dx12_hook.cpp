@@ -14,6 +14,7 @@
 #include "xinput_hook.h"
 #include "hdr_composite_shader.h"
 #include "../core/logger.h"
+#include "../core/localization.h"
 #include "../core/settings.h"
 #include "../core/state.h"
 #include "../game/player.h"
@@ -957,22 +958,22 @@ namespace trinity::hooks
                 switch (res)
                 {
                 case game::Teleport::MarkerStatus::Success:
-                    ui::Toast("Teleported to destination");
+                    ui::Toast(LOC("Teleported to destination"));
                     break;
                 case game::Teleport::MarkerStatus::NoMarker:
-                    ui::Toast("No destination found on map");
+                    ui::Toast(LOC("No destination found on map"));
                     break;
                 case game::Teleport::MarkerStatus::NoPlayer:
-                    ui::Toast("Player not ready");
+                    ui::Toast(LOC("Player not ready"));
                     break;
                 case game::Teleport::MarkerStatus::InvalidCoordinates:
-                    ui::Toast("Invalid destination coordinates");
+                    ui::Toast(LOC("Invalid destination coordinates"));
                     break;
                 case game::Teleport::MarkerStatus::UnsafeContext:
-                    ui::Toast("Unsafe destination context");
+                    ui::Toast(LOC("Unsafe destination context"));
                     break;
                 default:
-                    ui::Toast("Destination teleport failed");
+                    ui::Toast(LOC("Destination teleport failed"));
                     break;
                 }
             }

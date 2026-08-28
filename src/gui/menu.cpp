@@ -419,8 +419,7 @@ namespace trinity::gui
         if (hidden > 0)
         {
             char label[48];
-            snprintf(label, sizeof(label), "Can't be dyed: %d piece%s",
-                     hidden, hidden == 1 ? "" : "s");
+            snprintf(label, sizeof(label), LOC("Can't be dyed: %d piece(s)"), hidden);
             char desc[256];
             snprintf(desc, sizeof(desc), "%s", hiddenList);
             ui::Option(label, desc);
@@ -1263,7 +1262,7 @@ namespace trinity::gui
             if (renderRow(i))
                 ++shown;
         if (shown == 0)
-            ui::Option("No matches", noMatchDesc);
+            ui::Option(LOC("No matches"), noMatchDesc);
     }
 
     // Renders one `ui::Submenu` row per category (built into `label` by
@@ -1345,8 +1344,8 @@ namespace trinity::gui
         // shows "row / total", Left/Right and PgUp/PgDn jump a screen at a
         // time, and the search row filters it live.
         RenderFilteredList(total, s_ftFilter, sizeof(s_ftFilter),
-            "Search this list by name.",
-            "No locations match this search.",
+            LOC("Search this list by name."),
+            LOC("No locations match this search."),
             [&](size_t i)
             {
                 const char* label = nullptr;
@@ -1355,13 +1354,13 @@ namespace trinity::gui
                 if (s_ftFilter[0] && !ContainsNoCase(label, s_ftFilter)) return false;
 
                 char desc[128];
-                snprintf(desc, sizeof(desc), "Fast travel to %s at %.0f, %.0f, %.0f.",
+                snprintf(desc, sizeof(desc), "%s", LOC("Fast travel to %s at %.0f, %.0f, %.0f."),
                          label, nx, ny, nz);
 
                 if (ui::Option(label, desc))
                 {
                     if (game::Teleport::TravelToNode(s_ftCat, i))
-                        ui::Toast("Warping to %s", label);
+                        ui::Toast(LOC("Warping to %s"), label);
                 }
                 return true;
             });
@@ -1639,13 +1638,13 @@ namespace trinity::gui
 
         char desc[224];
         if (locked)
-            snprintf(desc, sizeof(desc),
-                     "Editing is locked until your save finishes loading.");
+            snprintf(desc, sizeof(desc), "%s",
+                     LOC("Editing is locked until your save finishes loading."));
         else if (showCat)
-            snprintf(desc, sizeof(desc), "%s, in %s.",
+            snprintf(desc, sizeof(desc), LOC("%s, in %s."),
                      it.name, game::Inventory::CategoryName(st, cat));
         else
-            snprintf(desc, sizeof(desc), "Change how many you have, or remove it.");
+            snprintf(desc, sizeof(desc), "%s", LOC("Change how many you have, or remove it."));
 
         long long nq = 0;
         const ui::ItemEdit e = ui::ItemRow(it.name, it.icon, it.qty,
@@ -1662,7 +1661,7 @@ namespace trinity::gui
         {
             if (game::Inventory::RemoveItem(st, cat, idx))
             {
-                ui::Toast("Removed %s", it.name);
+                ui::Toast(LOC("Removed %s"), it.name);
                 game::Inventory::ForceRefresh(); // drop the row now, not in 120ms
             }
         }
@@ -2760,13 +2759,13 @@ namespace trinity::gui
             *keyVk = defKeyVk;
             if (capKey) s_capTarget = BindTarget::None;
             Settings::Save(); // binds persist regardless of Auto Save
-            ui::Toast("%s keyboard bind reset to %s", label, KeyName(defKeyVk));
+            ui::Toast(LOC("%s keyboard bind reset to %s"), label, KeyName(defKeyVk));
             break;
         case ui::BindEdit::ResetPad:
             *padMask = defPadMask;
             if (capPad) s_capTarget = BindTarget::None;
             Settings::Save();
-            ui::Toast("%s controller bind reset to %s", label, PadMaskName(defPadMask));
+            ui::Toast(LOC("%s controller bind reset to %s"), label, PadMaskName(defPadMask));
             break;
         default:
             break;
@@ -2836,7 +2835,7 @@ namespace trinity::gui
             {
                 *keyField = pendKey;
                 Settings::Save();                                               // binds persist regardless of Auto Save
-                ui::Toast("%s set to %s", label, KeyName(pendKey));
+                ui::Toast(LOC("%s set to %s"), label, KeyName(pendKey));
                 s_capTarget = BindTarget::None;
             }
         }
@@ -2851,7 +2850,7 @@ namespace trinity::gui
             {
                 *padField = padAccum;
                 Settings::Save();
-                ui::Toast("%s set to %s", label, PadMaskName(padAccum));
+                ui::Toast(LOC("%s set to %s"), label, PadMaskName(padAccum));
                 s_capTarget = BindTarget::None;
             }
         }
