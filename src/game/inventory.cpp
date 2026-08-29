@@ -3213,8 +3213,7 @@ namespace trinity::game
             // Direct TypeID recognition
             // Damiane (1): Royal Oath (53935), Demenissian Hero's Musket (6324), rapier line
             if (tid == 53935 || tid == 6324 || tid == 6041 || tid == 5306 || tid == 5300 ||
-                tid == 5297 || tid == 5277 || tid == 3463 || (tid >= 5450 && tid <= 5468) ||
-                (tid >= 5270 && tid <= 5310) || (tid >= 6320 && tid <= 6330))
+                tid == 5297 || tid == 5277 || tid == 3463)
             {
                 static bool s_identDiag1 = false;
                 if (!s_identDiag1)
@@ -3225,6 +3224,31 @@ namespace trinity::game
                     LOG_WARN("inventory: Damiane verdict tid=%u key=%s", tid, dkey);
                 }
                 return 1;
+            }
+            // The range blocks (5450-5468 / 5270-5310 / 6320-6330) also hold shared
+            // generic gear - e.g. 6326 Rusty_Hagwood_OneHandDagger is Kliff's dagger.
+            // A range hit only counts when the engine key also carries a Damiane
+            // signature word, so generic weapons never hijack her identity.
+            if ((tid >= 5450 && tid <= 5468) || (tid >= 5270 && tid <= 5310) ||
+                (tid >= 6320 && tid <= 6330))
+            {
+                char rkey[96] = "";
+                KeyForType(tid, rkey, sizeof(rkey));
+                if (rkey[0] && (ContainsCi(rkey, "Damian") || ContainsCi(rkey, "Demian") || ContainsCi(rkey, "Demeniss") ||
+                                ContainsCi(rkey, "Rapier") || ContainsCi(rkey, "Musket") || ContainsCi(rkey, "Caliburn") ||
+                                ContainsCi(rkey, "Spencer") || ContainsCi(rkey, "Dewhaven") ||
+                                ContainsCi(rkey, "WhiteWind") || ContainsCi(rkey, "White_Wind") || ContainsCi(rkey, "Hwando")))
+                {
+                    static bool s_identDiag1 = false;
+                    if (!s_identDiag1)
+                    {
+                        s_identDiag1 = true;
+                        char dkey[96] = "";
+                        KeyForType(tid, dkey, sizeof(dkey));
+                        LOG_WARN("inventory: Damiane verdict tid=%u key=%s", tid, dkey);
+                    }
+                    return 1;
+                }
             }
             // Oongka (2) - narrowed to signature gear only. The removed ranges
             // (2299/3740/3762-3777/1090-1094/1390) were shared generic items and
