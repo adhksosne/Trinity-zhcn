@@ -199,6 +199,7 @@ namespace trinity::ui
         snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s", LOC(si.slotName));
 
         g_selectedTooltip.dyeTotalZones = (si.maxZones > 12) ? 12 : ((si.maxZones < 1) ? 1 : si.maxZones);
+        int firstDyed = -1;
         for (int z = 0; z < 12; ++z)
         {
             game::Dye::Channel c{};
@@ -206,7 +207,24 @@ namespace trinity::ui
             {
                 g_selectedTooltip.dyeZoneRGB[z] = (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | c.b;
                 g_selectedTooltip.dyeZoneDyed[z] = true;
+                if (firstDyed < 0) firstDyed = z;
             }
+        }
+        // Preview the "active colour" card like the editor does: default to the
+        // first dyed zone (or zone 1 when nothing is dyed yet), so the list
+        // tooltip shows the real colour / material, not a blank black card.
+        const int act = (firstDyed >= 0) ? firstDyed : 0;
+        game::Dye::Channel ac{};
+        if (game::Dye::GetChannel(si.tag, act, &ac))
+        {
+            g_selectedTooltip.dyeActiveRGB = (uint32_t(ac.r) << 16) | (uint32_t(ac.g) << 8) | ac.b;
+            g_selectedTooltip.dyeActiveZone = act + 1;
+            g_selectedTooltip.dyeMaterial = (ac.materialId <= 10) ? ac.materialId : 0;
+            g_selectedTooltip.dyeCondition = (ac.repair <= 127) ? (100 - ac.repair * 100 / 127) : 100;
+        }
+        else
+        {
+            g_selectedTooltip.dyeActiveZone = (firstDyed >= 0) ? firstDyed + 1 : 0;
         }
     }
 
