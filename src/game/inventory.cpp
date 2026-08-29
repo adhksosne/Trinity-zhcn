@@ -3388,8 +3388,19 @@ namespace trinity::game
         };
 
         const uintptr_t clientC = ResolveClientContainer();
-        if (clientC && LiveCharacterIdentity() == index)
-            addMatch(clientC);
+        const int liveIdent = LiveCharacterIdentity();
+        if (clientC && IsLiveCharacter(clientC))
+        {
+            // Kliff (0) is the default protagonist: when no other character is
+            // positively identified as live (identity unknown or Kliff), the
+            // live container is his - a structural check only, no equipment
+            // guessing. A Kliff build that happens to carry Damiane gear must
+            // not lose his identity (upstream misrouted him via shared TypeIDs).
+            if (index == 0 && (liveIdent < 0 || liveIdent == 0))
+                addMatch(clientC);
+            else if (liveIdent == index)
+                addMatch(clientC);
+        }
 
         // Candidate containers from every capture source
         uintptr_t candidates[64] = {};
