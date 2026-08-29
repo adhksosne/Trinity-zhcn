@@ -561,12 +561,7 @@ namespace trinity::ui
                 std::vector<uint8_t> dds;
                 if (!game::pak::ReadFile(12, "ui/texture/icon", file, dds, /*optional=*/true))
                 {
-                    static int s_missLog = 0;
-                    if (s_missLog < 30)
-                    {
-                        ++s_missLog;
-                        LOG("icons: no .dds for %s", file);
-                    }
+                    LOG("icons: no .dds for %s", file);
                     // no icon for this item - nothing to report
                 }
                 else if (UploadDDS(g_dev, g_heap, g_inc, g_nextSlot, dds, ic.atlas))

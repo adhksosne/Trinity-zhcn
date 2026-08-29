@@ -933,11 +933,15 @@ namespace trinity::game
             if (!Read16(list + kOff_IconData_Path, &row)) return false;
             const bool ok = IconNameForRow(row, out, n);
             static int s_iconDiag = 0;
-            if (s_iconDiag < 30)
+            if (!ok)
+            {
+                LOG_WARN("inventory: icon FAIL typeId=%u list=0x%llX count=%u row=%u",
+                         typeId, (unsigned long long)list, count, row);
+            }
+            else if (s_iconDiag < 30)
             {
                 ++s_iconDiag;
-                LOG_WARN("inventory: icon diag typeId=%u list=0x%llX count=%u row=%u -> %s result='%s'",
-                         typeId, (unsigned long long)list, count, row, ok ? "ok" : "FAIL", ok ? out : "");
+                LOG_WARN("inventory: icon diag typeId=%u row=%u result='%s'", typeId, row, out);
             }
             return ok;
         }
