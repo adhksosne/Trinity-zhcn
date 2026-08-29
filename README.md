@@ -1,4 +1,4 @@
-# Trinity — Crimson Desert (vTweak by Lian)
+# Trinity-zhcn — Crimson Desert Mod Menu (zh-CN)
 
 Trinity is an in-game DirectX 12 mod menu for **Crimson Desert**, originally created by **XeTrinityz**. This repository provides an enhanced, fully updated build for game version **TU 1.17.00 – 1.18.00+** with critical memory fixes, auto-navigation, and quality-of-life enhancements.
 
