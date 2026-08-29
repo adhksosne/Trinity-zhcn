@@ -322,9 +322,9 @@ namespace trinity::ui
     {
         char fullDesc[256];
         if (buff && buff[0])
-            snprintf(fullDesc, sizeof(fullDesc), "%s  [Effect: %s]", desc ? desc : "Socket this abyss gear.", buff);
+            snprintf(fullDesc, sizeof(fullDesc), "%s  [%s: %s]", desc ? desc : LOC("Socket this abyss gear."), LOC("Effect"), LOC(buff));
         else
-            snprintf(fullDesc, sizeof(fullDesc), "%s", desc ? desc : "Socket this abyss gear.");
+            snprintf(fullDesc, sizeof(fullDesc), "%s", desc ? desc : LOC("Socket this abyss gear."));
 
         const float s = g_scale;
         char fittedLabel[192];
@@ -332,7 +332,7 @@ namespace trinity::ui
         if (buff && buff[0])
         {
             const float bFSz = g_fontBody->FontSize * 0.88f;
-            const float bW = g_fontBody->CalcTextSizeA(bFSz, FLT_MAX, 0.0f, buff).x;
+            const float bW = g_fontBody->CalcTextSizeA(bFSz, FLT_MAX, 0.0f, LOC(buff)).x;
             const float rowW = g_width;
             const float textX = (icon && icon[0]) ? 40.0f * s : 14.0f * s;
             const float avail = rowW - textX - bW - 32.0f * s;
@@ -349,11 +349,11 @@ namespace trinity::ui
         {
             ImDrawList* dl = DL();
             const float bFSz = g_fontBody->FontSize * 0.88f;
-            const float bW = g_fontBody->CalcTextSizeA(bFSz, FLT_MAX, 0.0f, buff).x;
+            const float bW = g_fontBody->CalcTextSizeA(bFSz, FLT_MAX, 0.0f, LOC(buff)).x;
             const float bY = (r.mn.y + r.mx.y - bFSz) * 0.5f;
             dl->AddText(g_fontBody, bFSz,
                         ImVec2(r.mx.x - bW - 16.0f * s, bY),
-                        IM_COL32(100, 220, 130, 255), buff);
+                        IM_COL32(100, 220, 130, 255), LOC(buff));
         }
         return r.activated;
     }
