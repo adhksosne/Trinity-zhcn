@@ -1776,7 +1776,7 @@ namespace trinity::ui
                         }
 
                         char sockLine[128];
-                        snprintf(sockLine, sizeof(sockLine), "%d. %s", k + 1, sock.gearName);
+                        snprintf(sockLine, sizeof(sockLine), "%d. %s", k + 1, LOC(sock.gearName));
 
                         // Right side: Gear Buff / Stat Description (e.g. "Attack 1", "Abyss Dmg +15%")
                         float buffW = 0.0f;
