@@ -375,8 +375,8 @@ namespace trinity::gui
                 snprintf(label, sizeof(label), "%s - %s  (%d %s)",
                          LOC(si.slotName), si.itemName, si.maxZones, LOC("zones"));
 
-            if (ui::SubmenuItem(label, si.icon[0] ? si.icon : nullptr, "dyeedit",
-                                LOC("Recolor this piece.")))
+            if (ui::SubmenuDyeItem(label, si.icon[0] ? si.icon : nullptr, "dyeedit", si,
+                                   LOC("Recolor this piece.")))
             {
                 // A different piece gets fresh pages (selection, scroll); the
                 // same piece keeps them, so hopping out and back in is free.
