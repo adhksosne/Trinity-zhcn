@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "../game/equipment.h"
+#include "../game/dye.h"
 
 namespace trinity::ui
 {

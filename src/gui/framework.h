@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../game/equipment.h"
+#include "../game/dye.h"
 
 namespace trinity::ui
 {
