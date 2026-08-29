@@ -62,13 +62,13 @@ namespace trinity::core
             {
                 g_versionInfo.tu = GameTU::TU_1_18_01_Plus; // modern layout family
                 snprintf(g_versionInfo.displayStr, sizeof(g_versionInfo.displayStr),
-                         "Crimson Desert TU 2.00.01 (Active)");
+                         "红色沙漠 TU 2.00.01");
             }
             else if (g_versionInfo.revision >= 2625)
             {
                 g_versionInfo.tu = GameTU::TU_1_18_01_Plus; // modern layout family
                 snprintf(g_versionInfo.displayStr, sizeof(g_versionInfo.displayStr),
-                         "Crimson Desert TU 2.00.00 (Active)");
+                         "红色沙漠 TU 2.00.00");
             }
             else if (hasModernDyeBatch)
             {

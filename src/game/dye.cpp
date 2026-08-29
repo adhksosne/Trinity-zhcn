@@ -1453,7 +1453,7 @@ namespace trinity::game
                 if (const char* n = SlotNameForTag(tag))
                     snprintf(s.slotName, sizeof(s.slotName), "%s", n);
                 else
-                    snprintf(s.slotName, sizeof(s.slotName), "Slot %u", tag);
+                    snprintf(s.slotName, sizeof(s.slotName), "槽位 %u", tag);
 
                 snprintf(s.itemName, sizeof(s.itemName), "%s", itemName);
                 snprintf(s.icon, sizeof(s.icon), "%s", icon);

@@ -770,7 +770,7 @@ namespace trinity::gui
             else
             {
                 snprintf(label, sizeof(label), "%s %d: %s", LOC("Socket"), k + 1,
-                         so.filled ? so.gearName : LOC("Empty"));
+                         so.filled ? LOC(so.gearName) : LOC("Empty"));
                 if (ui::SubmenuItem(label, (so.filled && so.gearIcon[0]) ? so.gearIcon : nullptr,
                                     "equipgear",
                                     so.filled ? LOC("Change or remove this abyss gear.")
