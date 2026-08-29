@@ -1190,7 +1190,7 @@ namespace trinity::game
 
                 char itemName[96] = "";
                 if (!Inventory::NameForTypeId(tid, itemName, sizeof(itemName)))
-                    snprintf(itemName, sizeof(itemName), "Item #%u", tid);
+                    snprintf(itemName, sizeof(itemName), "物品 #%u", tid);
 
                 // Exclude dummy unarmed placeholder gear (Ordinary Gloves) from Edit Equipment
                 if (IsDummyOrUnarmed(tid, itemName)) continue;
@@ -1967,7 +1967,7 @@ namespace trinity::game
         const char* charName = CharacterName(charIdx);
         char itemName[64] = "";
         if (!Inventory::NameForTypeId(typeId, itemName, sizeof(itemName)))
-            snprintf(itemName, sizeof(itemName), "Item #%u", typeId);
+            snprintf(itemName, sizeof(itemName), "物品 #%u", typeId);
         const char* slotName = SlotNameForTag(tag);
         LOG("equipment: [%s] Slot [%s (Tag %u)] -> Directly Equipped '%s' (TypeID %u, InstID 0x%llX).",
             charName, slotName ? slotName : "Unknown", tag, itemName, typeId, static_cast<unsigned long long>(instId));

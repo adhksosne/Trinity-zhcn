@@ -2175,7 +2175,7 @@ namespace trinity::game
                     if (KeyForType(tid, it.key, sizeof(it.key)))
                         Prettify(it.key, it.name, sizeof(it.name));
                     else
-                        snprintf(it.name, sizeof(it.name), "Item #%u", tid);
+                        snprintf(it.name, sizeof(it.name), "物品 #%u", tid);
                 }
                 if (!it.key[0] && !KeyForType(tid, it.key, sizeof(it.key)))
                     it.key[0] = 0;
@@ -2807,7 +2807,7 @@ namespace trinity::game
                             if (KeyForType(tid, entry.key, sizeof(entry.key)))
                                 Prettify(entry.key, entry.name, sizeof(entry.name));
                             else
-                                snprintf(entry.name, sizeof(entry.name), "Item #%u", tid);
+                                snprintf(entry.name, sizeof(entry.name), "物品 #%u", tid);
                         }
                         if (!entry.key[0]) KeyForType(tid, entry.key, sizeof(entry.key));
                         if (!entry.icon[0]) IconForType(tid, entry.icon, sizeof(entry.icon));
@@ -5065,7 +5065,7 @@ namespace trinity::game
             rec.typeId = typeId;
             rec.qty    = qty;
             if (name && name[0]) snprintf(rec.name, sizeof(rec.name), "%s", name);
-            else snprintf(rec.name, sizeof(rec.name), "Item #%u", typeId);
+            else snprintf(rec.name, sizeof(rec.name), "物品 #%u", typeId);
             if (key && key[0]) snprintf(rec.key, sizeof(rec.key), "%s", key);
             if (icon && icon[0]) snprintf(rec.icon, sizeof(rec.icon), "%s", icon);
             snprintf(rec.source, sizeof(rec.source), "%s", src);

@@ -1310,7 +1310,7 @@ namespace trinity::game
                             char itemName[96] = "";
                             char icon[128] = "";
                             if (!Inventory::NameForTypeId(tid, itemName, sizeof(itemName)))
-                                snprintf(itemName, sizeof(itemName), "Item #%u", tid);
+                                snprintf(itemName, sizeof(itemName), "物品 #%u", tid);
                             Inventory::IconForTypeId(tid, icon, sizeof(icon));
 
                             const HorseSlotType slotType = GetHorseSlotType(itemName, icon);
@@ -1372,7 +1372,7 @@ namespace trinity::game
                         char itemName[96] = "";
                         char icon[128] = "";
                         if (!Inventory::NameForTypeId(tid, itemName, sizeof(itemName)))
-                            snprintf(itemName, sizeof(itemName), "Item #%u", tid);
+                            snprintf(itemName, sizeof(itemName), "物品 #%u", tid);
                         Inventory::IconForTypeId(tid, icon, sizeof(icon));
 
                         if (IsDummyOrUnarmed(tid, itemName)) continue;
@@ -1429,7 +1429,7 @@ namespace trinity::game
                 char itemName[96] = "";
                 char icon[128] = "";
                 if (!Inventory::NameForTypeId(tid, itemName, sizeof(itemName)))
-                    snprintf(itemName, sizeof(itemName), "Item #%u", tid);
+                    snprintf(itemName, sizeof(itemName), "物品 #%u", tid);
                 Inventory::IconForTypeId(tid, icon, sizeof(icon));
 
                 if (IsDummyOrUnarmed(tid, itemName)) continue;
