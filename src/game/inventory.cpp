@@ -931,19 +931,7 @@ namespace trinity::game
             if (list < kMinPointer || count == 0 || count > 64) return false;
             uint16_t row = 0;
             if (!Read16(list + kOff_IconData_Path, &row)) return false;
-            const bool ok = IconNameForRow(row, out, n);
-            static int s_iconDiag = 0;
-            if (!ok)
-            {
-                LOG_WARN("inventory: icon FAIL typeId=%u list=0x%llX count=%u row=%u",
-                         typeId, (unsigned long long)list, count, row);
-            }
-            else if (s_iconDiag < 30)
-            {
-                ++s_iconDiag;
-                LOG_WARN("inventory: icon diag typeId=%u row=%u result='%s'", typeId, row, out);
-            }
-            return ok;
+            return IconNameForRow(row, out, n);
         }
 
         // A category's icon, from the same table via ItemGroupInfo._iconPath.
