@@ -19,7 +19,7 @@ namespace trinity::loc
         std::mutex s_mutex;
         std::vector<LanguageInfo> s_languages;
         int s_currentIndex = 0;
-        std::string s_currentCode = "en";
+        std::string s_currentCode = "zh"; // prefer Simplified Chinese on first load
         std::unordered_map<std::string, std::string> s_translations;
         std::string s_translationText; // concatenated key+value text for glyph coverage
 

@@ -45,7 +45,7 @@ namespace trinity
         bool godMode         = false;
         bool oneHitKill      = false;
         bool infDurability   = false;
-        bool noFallDamage    = true;
+        bool noFallDamage    = false; // disabled by default (opt-in)
         bool infStamina      = false;
         bool infMountStamina = false;
         bool infSpirit       = false;
