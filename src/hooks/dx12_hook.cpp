@@ -1095,8 +1095,8 @@ namespace trinity::hooks
             g_scWidth   = desc.BufferDesc.Width;
             g_scHeight  = desc.BufferDesc.Height;
             g_scFormat  = desc.BufferDesc.Format;
+            CreateRenderTargets(swapChain);
         }
-        CreateRenderTargets(swapChain);
         // Must follow the g_scWidth/g_scHeight update above (and precede the
         // next ReconcileSwapChain, which would otherwise see the new signature
         // as "unchanged" and never resize the offscreen target to match).
@@ -1121,10 +1121,20 @@ namespace trinity::hooks
     {
         if (!g_imguiReady || g_wrapperActive)
             return oResizeBuffers(swapChain, bufferCount, width, height, format, flags);
-        PreResizeCleanup();
-        const HRESULT hr = oResizeBuffers(swapChain, bufferCount, width, height, format, flags);
-        PostResizeRebuild(swapChain);
-        return hr;
+        __try
+        {
+            PreResizeCleanup();
+            const HRESULT hr = oResizeBuffers(swapChain, bufferCount, width, height, format, flags);
+            if (SUCCEEDED(hr)) PostResizeRebuild(swapChain);
+            return hr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            // A settings change can put the swapchain in a half-torn-down state;
+            // never let our rebuild crash the game - just forward and retry next time.
+            LOG_ERR("dx12: hkResizeBuffers crashed during overlay rebuild - skipped");
+            return oResizeBuffers(swapChain, bufferCount, width, height, format, flags);
+        }
     }
 
     // Only reachable when wrapping failed (see g_wrapperActive) - the wrapper's
@@ -1208,10 +1218,18 @@ namespace trinity::hooks
         HRESULT STDMETHODCALLTYPE GetDesc(DXGI_SWAP_CHAIN_DESC* d) override { return m_inner->GetDesc(d); }
         HRESULT STDMETHODCALLTYPE ResizeBuffers(UINT bc, UINT w, UINT h, DXGI_FORMAT f, UINT fl) override
         {
-            PreResizeCleanup();
-            const HRESULT hr = m_inner->ResizeBuffers(bc, w, h, f, fl);
-            PostResizeRebuild(m_inner);
-            return hr;
+            __try
+            {
+                PreResizeCleanup();
+                const HRESULT hr = m_inner->ResizeBuffers(bc, w, h, f, fl);
+                if (SUCCEEDED(hr)) PostResizeRebuild(m_inner);
+                return hr;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                LOG_ERR("dx12: wrapper ResizeBuffers crashed during overlay rebuild - skipped");
+                return m_inner->ResizeBuffers(bc, w, h, f, fl);
+            }
         }
         HRESULT STDMETHODCALLTYPE ResizeTarget(const DXGI_MODE_DESC* p) override { return m_inner->ResizeTarget(p); }
         HRESULT STDMETHODCALLTYPE GetContainingOutput(IDXGIOutput** pp) override { return m_inner->GetContainingOutput(pp); }
@@ -1257,10 +1275,18 @@ namespace trinity::hooks
         }
         HRESULT STDMETHODCALLTYPE ResizeBuffers1(UINT bc, UINT w, UINT h, DXGI_FORMAT f, UINT fl, const UINT* nodeMask, IUnknown* const* pQueues) override
         {
-            PreResizeCleanup();
-            const HRESULT hr = m_inner->ResizeBuffers1(bc, w, h, f, fl, nodeMask, pQueues);
-            PostResizeRebuild(m_inner);
-            return hr;
+            __try
+            {
+                PreResizeCleanup();
+                const HRESULT hr = m_inner->ResizeBuffers1(bc, w, h, f, fl, nodeMask, pQueues);
+                if (SUCCEEDED(hr)) PostResizeRebuild(m_inner);
+                return hr;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                LOG_ERR("dx12: wrapper ResizeBuffers1 crashed during overlay rebuild - skipped");
+                return m_inner->ResizeBuffers1(bc, w, h, f, fl, nodeMask, pQueues);
+            }
         }
 
         // IDXGISwapChain4 ---------------------------------------------------
