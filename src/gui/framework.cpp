@@ -150,7 +150,7 @@ namespace trinity::ui
         snprintf(g_selectedTooltip.name, sizeof(g_selectedTooltip.name), "%s", name);
         if (icon && icon[0])
             snprintf(g_selectedTooltip.icon, sizeof(g_selectedTooltip.icon), "%s", icon);
-        snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "Abyss Gear  •  Socket Power");
+        snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s  •  %s", LOC("Abyss Gear"), LOC("Socket Power"));
         if (buff && buff[0])
             snprintf(g_selectedTooltip.gearBuff, sizeof(g_selectedTooltip.gearBuff), "%s", buff);
     }
@@ -1466,11 +1466,11 @@ namespace trinity::ui
                     // Standalone Abyss Gear preview stat box
                     dl->AddText(g_fontBody, statFSz * 0.90f,
                                 ImVec2(statsMn.x + 8.0f * s, statY),
-                                theme::TextDim, "Socket Stat Effect");
+                                theme::TextDim, LOC("Socket Stat Effect"));
 
                     dl->AddText(g_fontBold, statFSz * 1.18f,
                                 ImVec2(statsMn.x + 8.0f * s, statY + statFSz + 3.0f * s),
-                                IM_COL32(100, 220, 130, 255), g_selectedTooltip.gearBuff);
+                                IM_COL32(100, 220, 130, 255), LOC(g_selectedTooltip.gearBuff));
                 }
                 else if (hasCombatStats)
                 {
@@ -1501,8 +1501,8 @@ namespace trinity::ui
                     // --- Row 1: Attack / Defense (Left) & Durability (Right) ---
                     if (totalAtk > 0)
                     {
-                        dl->AddText(g_fontBody, statFSz, ImVec2(statsMn.x + 8.0f * s, statY), theme::TextDim, "Attack");
-                        const float atkLblW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, "Attack").x;
+                        dl->AddText(g_fontBody, statFSz, ImVec2(statsMn.x + 8.0f * s, statY), theme::TextDim, LOC("Attack"));
+                        const float atkLblW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, LOC("Attack")).x;
                         char atkStr[16];
                         snprintf(atkStr, sizeof(atkStr), "%d", totalAtk);
                         dl->AddText(g_fontBold, statFSz * 1.08f,
@@ -1511,8 +1511,8 @@ namespace trinity::ui
                     }
                     else if (totalDef > 0)
                     {
-                        dl->AddText(g_fontBody, statFSz, ImVec2(statsMn.x + 8.0f * s, statY), theme::TextDim, "Defense");
-                        const float defLblW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, "Defense").x;
+                        dl->AddText(g_fontBody, statFSz, ImVec2(statsMn.x + 8.0f * s, statY), theme::TextDim, LOC("Defense"));
+                        const float defLblW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, LOC("Defense")).x;
                         char defStr[16];
                         snprintf(defStr, sizeof(defStr), "%d", totalDef);
                         dl->AddText(g_fontBold, statFSz * 1.08f,
@@ -1523,7 +1523,7 @@ namespace trinity::ui
                     if (durability >= 0)
                     {
                         char duraBuf[32];
-                        snprintf(duraBuf, sizeof(duraBuf), "Durability %d%%", durability / 100);
+                        snprintf(duraBuf, sizeof(duraBuf), "%s %d%%", LOC("Durability"), durability / 100);
                         const float duraW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, duraBuf).x;
                         dl->AddText(g_fontBody, statFSz,
                                     ImVec2(statsMx.x - duraW - 8.0f * s, statY),
@@ -1612,7 +1612,7 @@ namespace trinity::ui
                     if (durability >= 0)
                     {
                         char duraBuf[32];
-                        snprintf(duraBuf, sizeof(duraBuf), "Durability %d%%", durability / 100);
+                        snprintf(duraBuf, sizeof(duraBuf), "%s %d%%", LOC("Durability"), durability / 100);
                         const float duraW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, duraBuf).x;
                         dl->AddText(g_fontBody, statFSz,
                                     ImVec2(statsMx.x - duraW - 8.0f * s, statY),
@@ -1621,9 +1621,9 @@ namespace trinity::ui
 
                     char sockSummary[48];
                     if (maxSock > 0)
-                        snprintf(sockSummary, sizeof(sockSummary), "Sockets: %d / %d used", filledS, maxSock);
+                        snprintf(sockSummary, sizeof(sockSummary), "%s: %d / %d %s", LOC("Sockets"), filledS, maxSock, LOC("used"));
                     else
-                        snprintf(sockSummary, sizeof(sockSummary), "No Sockets");
+                        snprintf(sockSummary, sizeof(sockSummary), LOC("No Sockets"));
 
                     dl->AddText(g_fontBody, statFSz * 0.92f,
                                 ImVec2(statsMn.x + 8.0f * s, statY + statFSz + 3.0f * s),
@@ -1692,7 +1692,7 @@ namespace trinity::ui
                 const float aHdrFSz = g_fontBody->FontSize * 0.82f;
                 dl->AddText(g_fontBold, aHdrFSz,
                             ImVec2(tmn.x + tPad + 4.0f * s, curY),
-                            theme::Accent, "Abyss Gears");
+                            theme::Accent, LOC("Abyss Gears"));
                 curY += gearLblH;
 
                 // --- Individual Sockets list (1..maxSock) ---
@@ -1745,7 +1745,7 @@ namespace trinity::ui
 
                             dl->AddText(g_fontBody, buffFSz,
                                         ImVec2(tmx.x - tPad - buffW, gTxtY),
-                                        buffColor, sock.gearBuff);
+                                        buffColor, LOC(sock.gearBuff));
                         }
 
                         const float gTxtMaxW = (tmx.x - tPad) - gTxtX - buffW - 4.0f * s;
@@ -1760,7 +1760,7 @@ namespace trinity::ui
                                       gearIconSz * 0.35f, WithAlpha(theme::Accent, 0.5f), 16, 1.2f * s);
 
                         char emptyLine[64];
-                        snprintf(emptyLine, sizeof(emptyLine), "%d. (Empty Socket)", k + 1);
+                        snprintf(emptyLine, sizeof(emptyLine), "%d. (%s)", k + 1, LOC("Empty Socket"));
 
                         dl->AddText(g_fontBody, gFontSz,
                                     ImVec2(gTxtX, gTxtY),
