@@ -349,26 +349,6 @@ namespace trinity::gui
         int shown = 0, hidden = 0;
         char hiddenList[200] = "";
 
-        // Live Preview: automatically display the side-panel dye overview for the active/selected slot
-        game::Dye::SlotInfo previewSlot{};
-        bool havePreviewSlot = false;
-        for (int i = 0; i < n; ++i)
-        {
-            game::Dye::SlotInfo si{};
-            if (game::Dye::GetSlot(i, &si) && si.dyeable)
-            {
-                if (!havePreviewSlot || si.tag == s_dyeTag)
-                {
-                    previewSlot = si;
-                    havePreviewSlot = true;
-                    if (si.tag == s_dyeTag) break;
-                }
-            }
-        }
-        if (havePreviewSlot)
-        {
-            UpdateDyeTooltip(previewSlot, 0xFFFFFF, 0);
-        }
 
         for (int i = 0; i < n; ++i)
         {

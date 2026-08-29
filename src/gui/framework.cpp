@@ -18,6 +18,7 @@
 #include "../core/version.h"
 #include "../core/localization.h"
 #include "../game/inventory.h"
+#include "../game/dye.h"
 #include "../hooks/xinput_hook.h"
 
 namespace trinity::ui
@@ -182,6 +183,29 @@ namespace trinity::ui
             {
                 g_selectedTooltip.dyeZoneRGB[i] = zoneColors[i];
                 g_selectedTooltip.dyeZoneDyed[i] = zoneDyed ? zoneDyed[i] : false;
+            }
+        }
+    }
+
+    void SetDyeSlotTooltip(const game::Dye::SlotInfo& si)
+    {
+        g_selectedTooltip = {};
+        if (!si.itemName[0]) return;
+
+        g_selectedTooltip.valid         = true;
+        g_selectedTooltip.isDye         = true;
+        snprintf(g_selectedTooltip.name, sizeof(g_selectedTooltip.name), "%s", si.itemName);
+        snprintf(g_selectedTooltip.icon, sizeof(g_selectedTooltip.icon), "%s", si.icon);
+        snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s", LOC(si.slotName));
+
+        g_selectedTooltip.dyeTotalZones = (si.maxZones > 12) ? 12 : ((si.maxZones < 1) ? 1 : si.maxZones);
+        for (int z = 0; z < 12; ++z)
+        {
+            game::Dye::Channel c{};
+            if (game::Dye::GetChannel(si.tag, z, &c))
+            {
+                g_selectedTooltip.dyeZoneRGB[z] = (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | c.b;
+                g_selectedTooltip.dyeZoneDyed[z] = true;
             }
         }
     }
@@ -1772,7 +1796,7 @@ namespace trinity::ui
                         dl->AddRect(gIconMn, gIconMx, WithAlpha(theme::TextDim, 0.25f), 2.0f * s, 0, 1.0f * s);
 
                         char lockedLine[64];
-                        snprintf(lockedLine, sizeof(lockedLine), "%d. (Locked)", k + 1);
+                        snprintf(lockedLine, sizeof(lockedLine), "%d. (%s)", k + 1, LOC("Locked"));
                         dl->AddText(g_fontBody, gFontSz,
                                     ImVec2(gTxtX, gTxtY),
                                     WithAlpha(theme::TextDim, 0.55f), lockedLine);

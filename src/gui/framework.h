@@ -91,6 +91,7 @@ namespace trinity::ui
                            int refineLevel = -1, int durability = -1,
                            int maxSockets = 0, int unlockedSockets = 0, int filledSockets = 0);
     void SetEquipTooltip(const game::Equipment::SlotInfo& si);
+    void SetDyeSlotTooltip(const game::Dye::SlotInfo& si);
     void SetAbyssGearTooltip(const char* name, const char* icon, const char* buff);
     void SetDyePreviewTooltip(const char* name, const char* icon, const char* subtitle,
                               int activeZone, uint32_t activeRGB, int activeMaterial, int activeCondition,

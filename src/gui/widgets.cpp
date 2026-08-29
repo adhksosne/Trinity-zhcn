@@ -12,6 +12,7 @@
 
 #include "../core/state.h"
 #include "../core/localization.h"
+#include "../game/dye.h"
 
 namespace trinity::ui
 {
@@ -931,6 +932,31 @@ namespace trinity::ui
         return r.activated;
     }
 
+    bool SubmenuDyeItem(const char* label, const char* icon, const char* id,
+                        const game::Dye::SlotInfo& si, const char* desc)
+    {
+        RowResult r = RowBase(label, desc, RowKind::Submenu, icon);
+        if (r.selected)
+        {
+            SetDyeSlotTooltip(si);
+        }
+        if (r.drawn)
+        {
+            ImDrawList* dl = DL();
+            const float s  = g_scale;
+            ArrowH(dl, ImVec2(r.mx.x - 20.0f * s, (r.mn.y + r.mx.y) * 0.5f), 5.0f * s, true,
+                   r.selected ? theme::TextBright : theme::TextDim);
+        }
+        if (r.activated)
+        {
+            char title[96];
+            snprintf(title, sizeof(title), "%s", label);
+            if (char* cut = strstr(title, "  ("))
+                *cut = 0;
+            RequestPush(id, title);
+        }
+        return r.activated;
+    }
     bool Search(char* buf, size_t cap, const char* desc)
     {
         g_captureSeen = true;
