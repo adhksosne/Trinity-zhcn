@@ -216,6 +216,20 @@ namespace trinity::game
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
             const int targetIdx = (s_activeCharIdx < 0) ? liveIdx : s_activeCharIdx;
 
+            static bool s_routeDiag = false;
+            if (!s_routeDiag)
+            {
+                s_routeDiag = true;
+                LOG("equipment: route diag live=%d target=%d clientChar=0x%llX hooked=0x%llX active=0x%llX actors=[0x%llX 0x%llX 0x%llX]",
+                    liveIdx, targetIdx,
+                    (unsigned long long)Inventory::ClientCharacterAddr(),
+                    (unsigned long long)Dye::HookedClientComp(),
+                    (unsigned long long)Dye::ActiveClientComp(),
+                    (unsigned long long)Player::GetActor(0),
+                    (unsigned long long)Player::GetActor(1),
+                    (unsigned long long)Player::GetActor(2));
+            }
+
             if (targetIdx == liveIdx)
             {
                 // The validated live character's walk leads - see dye.cpp for
@@ -242,14 +256,16 @@ namespace trinity::game
                     }
                 }
 
-                if (liveIdx > 0 && liveIdx < 3)
+                // Loose live fallbacks so the active character always reads back
+                // (upstream strict routing left the live character unresolvable).
+                const uintptr_t active = Dye::ActiveClientComp();
+                if (active && CompValid(active)) return active;
+
+                const uintptr_t liveActor = Player::GetActor(liveIdx);
+                if (liveActor)
                 {
-                    const uintptr_t liveActor = Player::GetActor(liveIdx);
-                    if (liveActor)
-                    {
-                        const uintptr_t comp = CompForCharacter(liveActor);
-                        if (comp) return comp;
-                    }
+                    const uintptr_t comp = CompForCharacter(liveActor);
+                    if (comp) return comp;
                 }
                 return 0; // never another character's component
             }
@@ -262,7 +278,7 @@ namespace trinity::game
                 if (comp)
                 {
                     const int id = Inventory::IdentifyCharacterFromComp(comp);
-                    if (id < 0 || id == targetIdx) return comp;
+                    if (id == targetIdx) return comp;
                 }
             }
             if (targetIdx > 0 && targetIdx < 3)
@@ -276,8 +292,7 @@ namespace trinity::game
                         if (comp)
                         {
                             const int id = Inventory::IdentifyCharacterFromComp(comp);
-                            if (id == targetIdx || (p == targetIdx && id < 0))
-                                return comp;
+                            if (id == targetIdx) return comp;
                         }
                     }
                 }
@@ -285,7 +300,6 @@ namespace trinity::game
             return 0;
         }
 
-        // Server-authority mirror with the same strict routing as dye.cpp.
         uintptr_t ServerComp()
         {
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
@@ -299,6 +313,15 @@ namespace trinity::game
                     const uintptr_t comp = CompForCharacter(serverChar);
                     if (comp) return comp;
                 }
+
+                // Loose live fallback (a client-realm component at worst; edits
+                // then render but do not persist, which the UI can warn about).
+                const uintptr_t liveActor = Player::GetActor(liveIdx);
+                if (liveActor)
+                {
+                    const uintptr_t comp = CompForCharacter(liveActor);
+                    if (comp) return comp;
+                }
             }
 
             const uintptr_t actor = Inventory::CharacterAddr(targetIdx);
@@ -308,7 +331,7 @@ namespace trinity::game
                 if (comp)
                 {
                     const int id = Inventory::IdentifyCharacterFromComp(comp);
-                    if (id < 0 || id == targetIdx) return comp;
+                    if (id == targetIdx) return comp;
                 }
             }
             if (targetIdx > 0 && targetIdx < 3)
@@ -322,15 +345,13 @@ namespace trinity::game
                         if (comp)
                         {
                             const int id = Inventory::IdentifyCharacterFromComp(comp);
-                            if (id == targetIdx || (p == targetIdx && id < 0))
-                                return comp;
+                            if (id == targetIdx) return comp;
                         }
                     }
                 }
             }
             return 0;
         }
-
         bool IsDummyOrUnarmed(uint16_t typeId, const char* name)
         {
             if (typeId == 0 || typeId == kInvSlot_EmptyType) return true;
