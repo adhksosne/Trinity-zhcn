@@ -912,7 +912,7 @@ namespace trinity::gui
     static void RenderEquipGear()
     {
         char title[112];
-        snprintf(title, sizeof(title), "%s - Socket %d", s_eqItem, s_eqSocket + 1);
+        snprintf(title, sizeof(title), "%s - %s %d", s_eqItem, LOC("Socket"), s_eqSocket + 1);
         ui::Begin(title);
 
         // Clearing the socket is always the first choice (icon box left empty so
