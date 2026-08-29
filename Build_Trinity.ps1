@@ -115,8 +115,8 @@ if ($numMatch.Success) {
 $modInfoContent = @"
 name=Trinity - vTweak
 version=$versionStr
-description=DirectX 12 Mod Menu for Crimson Desert (Maintenance & vTweak by Lian)
-author=Lian (ReXooGen)
+description=DirectX 12 Mod Menu for Crimson Desert (Trinity-zhcn)
+author=adhksosne (Trinity-zhcn)
 category=Utilities
 "@
 Set-Content -Path (Join-Path $pkgDir 'modinfo.ini') -Value $modInfoContent -Encoding UTF8
@@ -125,8 +125,8 @@ $infoJsonContent = @"
 {
   "name": "Trinity - vTweak",
   "version": "$versionStr",
-  "author": "Lian (ReXooGen)",
-  "description": "DirectX 12 Mod Menu for Crimson Desert (Maintenance & vTweak by Lian)",
+  "author": "adhksosne (Trinity-zhcn)",
+  "description": "DirectX 12 Mod Menu for Crimson Desert (Trinity-zhcn)",
   "category": "Utilities"
 }
 "@
