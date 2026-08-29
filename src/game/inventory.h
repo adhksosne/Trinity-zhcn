@@ -153,6 +153,13 @@ namespace trinity::game
         enum class AddState { Idle, Pending, Added, Failed };
         static AddState AddStatus();
 
+        // Raw access to the engine localisation string pool. Valid once LocString
+        // has resolved; may be empty very early. Used by the UI to build glyph
+        // coverage so any CJK character an engine-localised name contains always
+        // has a glyph - independent of any baked-in dictionary.
+        struct LocBlobInfo { const char* data = nullptr; size_t size = 0; };
+        static bool GetLocBlob(LocBlobInfo* out);
+
         // Bulk add: queue `count` items (from `typeIds`), `qtyEach` of each, in
         // one action - "add X of every item in this category". Same engine path
         // as AddItem, just many of them, drained a few per Tick so the adds never

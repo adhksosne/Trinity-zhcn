@@ -21,6 +21,7 @@ namespace trinity::loc
         int s_currentIndex = 0;
         std::string s_currentCode = "en";
         std::unordered_map<std::string, std::string> s_translations;
+        std::string s_translationText; // concatenated key+value text for glyph coverage
 
         std::string GetModuleDir()
         {
@@ -56,9 +57,21 @@ namespace trinity::loc
             return s.substr(first, (last - first + 1));
         }
 
+        void RebuildTranslationText()
+        {
+            s_translationText.clear();
+            s_translationText.reserve(s_translations.size() * 48);
+            for (const auto& kv : s_translations)
+            {
+                s_translationText += kv.first;
+                s_translationText += kv.second;
+            }
+        }
+
         void LoadLanguageFile(const std::string& filePath)
         {
             s_translations.clear();
+            s_translationText.clear();
             if (filePath.empty())
                 return; // English / built-in
 
@@ -98,6 +111,7 @@ namespace trinity::loc
                 }
             }
             LOG_OK("localization: loaded %zu translations from %s", s_translations.size(), filePath.c_str());
+            RebuildTranslationText();
         }
 
         bool ReadLanguageHeader(const std::string& filePath, std::string& outName, std::string& outCode)
@@ -338,5 +352,10 @@ namespace trinity::loc
             return it->second.c_str();
 
         return text;
+    }
+
+    const char* LoadedTranslationText()
+    {
+        return s_translationText.c_str();
     }
 }

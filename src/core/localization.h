@@ -31,6 +31,10 @@ namespace trinity::loc
 
     // Translates a UI string. If not found or English, returns the original text.
     const char* Tr(const char* text);
+
+    // Returns the concatenated key+value text of the currently loaded language
+    // file, used to build glyph coverage so every translated character renders.
+    const char* LoadedTranslationText();
 }
 
 // Convenience macro for UI localization

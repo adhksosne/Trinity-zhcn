@@ -17,6 +17,7 @@
 #include "../core/state.h"
 #include "../core/version.h"
 #include "../core/localization.h"
+#include "../game/inventory.h"
 #include "../hooks/xinput_hook.h"
 
 namespace trinity::ui
@@ -272,6 +273,30 @@ namespace trinity::ui
             builder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
             // Add all extra Chinese characters used in Trinity UI (including 辑, 镶, 嵌, 渊, 斗, 昼, 耀, etc.)
             builder.AddText("霓炫帧编辑装备精炼深渊符文镶嵌斗气落日耀橙矩阵翡翠赛博青蓝快捷键昼夜时间重置孔位个人仓库营地衣柜推进锁定加快减慢运行速度单手双手武器盾牌远程匕首头盔防具披风手套靴子项链戒指眼镜面具骑乘载具料理药水食材药材杂物书籍配方地图通缉令工具货币记忆钥匙封印文物机关控制库库罐诱饵贸易品未分类搜索输入");
+            builder.AddText(loc::LoadedTranslationText());
+            game::Inventory::LocBlobInfo blob{};
+            if (game::Inventory::GetLocBlob(&blob) && blob.data && blob.size)
+            {
+                const char* p = blob.data;
+                const char* end = blob.data + blob.size;
+                while (p < end)
+                {
+                    const uint8_t c = static_cast<uint8_t>(*p);
+                    uint32_t cp = 0;
+                    int len = 0;
+                    if (c < 0x80) { ++p; continue; }
+                    else if ((c >> 5) == 0x6 && p + 1 < end)
+                    { cp = ((c & 0x1Fu) << 6) | (p[1] & 0x3Fu); len = 2; }
+                    else if ((c >> 4) == 0xE && p + 2 < end)
+                    { cp = ((c & 0x0Fu) << 12) | ((p[1] & 0x3Fu) << 6) | (p[2] & 0x3Fu); len = 3; }
+                    else if ((c >> 3) == 0x1E && p + 3 < end)
+                    { cp = ((c & 0x07u) << 18) | ((p[1] & 0x3Fu) << 12) | ((p[2] & 0x3Fu) << 6) | (p[3] & 0x3Fu); len = 4; }
+                    else { ++p; continue; }
+                    p += len;
+                    if ((cp >= 0x3400 && cp <= 0x9FFF) || (cp >= 0xF900 && cp <= 0xFAFF))
+                        builder.AddChar(static_cast<ImWchar>(cp));
+                }
+            }
             builder.BuildRanges(&s_zhRanges);
         }
 

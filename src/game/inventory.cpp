@@ -4810,6 +4810,24 @@ namespace trinity::game
         return static_cast<AddState>(g_addState.load(std::memory_order_acquire));
     }
 
+    bool Inventory::GetLocBlob(LocBlobInfo* out)
+    {
+        if (!out) return false;
+        *out = LocBlobInfo{};
+        if (!g_locMgrGlobal) return false;
+        uintptr_t mgr = 0;
+        if (!ReadPtr(g_locMgrGlobal, &mgr) || mgr < kMinPointer) return false;
+        // TU 2.00.00+ (PE >= 2625): string pool is stored directly on LocManager
+        // (mgr + 0x58 = char* pool base, mgr + 0x60 = uint32_t size).
+        uintptr_t data = 0;
+        uint32_t  size = 0;
+        if (!ReadPtr(mgr + 0x58, &data) || data < kMinPointer) return false;
+        if (!Read32(mgr + 0x60, &size) || size == 0 || size > 64u * 1024 * 1024) return false;
+        out->data = reinterpret_cast<const char*>(data);
+        out->size = size;
+        return true;
+    }
+
     bool Inventory::AddItemsBulk(const uint16_t* typeIds, int count, int64_t qtyEach)
     {
         if (!typeIds || count <= 0 || qtyEach < 1) return false;
