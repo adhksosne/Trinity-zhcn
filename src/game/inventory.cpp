@@ -3216,14 +3216,36 @@ namespace trinity::game
                 tid == 5297 || tid == 5277 || tid == 3463 || (tid >= 5450 && tid <= 5468) ||
                 (tid >= 5270 && tid <= 5310) || (tid >= 6320 && tid <= 6330))
                 return 1;
-            // Oongka (2)
-            if (tid == 6560 || tid == 6042 || tid == 6305 || (tid >= 6550 && tid <= 6570) ||
-                tid == 2299 || tid == 3740 || (tid >= 3762 && tid <= 3777) ||
-                (tid >= 1090 && tid <= 1094) || tid == 1390)
+            // Oongka (2) - narrowed to signature gear only. The removed ranges
+            // (2299/3740/3762-3777/1090-1094/1390) were shared generic items and
+            // misrouted Kliff's gear to Oongka.
+            if (tid == 6560 || tid == 6042 || tid == 6305 || (tid >= 6550 && tid <= 6570))
+            {
+                static bool s_identDiag2 = false;
+                if (!s_identDiag2)
+                {
+                    s_identDiag2 = true;
+                    char dkey[96] = "", dname[96] = "";
+                    KeyForType(tid, dkey, sizeof(dkey));
+                    Inventory::NameForTypeId(tid, dname, sizeof(dname));
+                    LOG_WARN("inventory: Oongka verdict tid=%u key=%s name=%s", tid, dkey, dname);
+                }
                 return 2;
+            }
             // Kliff (0)
             if (tid == 6303 || tid == 6040 || (tid >= 5330 && tid <= 5350))
+            {
+                static bool s_identDiag0 = false;
+                if (!s_identDiag0)
+                {
+                    s_identDiag0 = true;
+                    char dkey[96] = "", dname[96] = "";
+                    KeyForType(tid, dkey, sizeof(dkey));
+                    Inventory::NameForTypeId(tid, dname, sizeof(dname));
+                    LOG_WARN("inventory: Kliff verdict tid=%u key=%s name=%s", tid, dkey, dname);
+                }
                 return 0;
+            }
 
             char key[96] = "";
             char name[96] = "";
