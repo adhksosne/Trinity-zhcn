@@ -216,121 +216,98 @@ namespace trinity::game
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
             const int targetIdx = (s_activeCharIdx < 0) ? liveIdx : s_activeCharIdx;
 
-            if (targetIdx == liveIdx)
+            // 1. If companion is explicitly selected (Damiane = 1, Oongka = 2), resolve companion actor
+            if (targetIdx > 0)
             {
-                // The validated live character's walk leads - see dye.cpp for
-                // why the hook capture must not lead (a server-realm capture
-                // carries the same gear and passes every identity check, but
-                // has no controller and no render state).
-                const uintptr_t liveChar = Inventory::ClientCharacterAddr();
-                if (liveChar)
+                if (targetIdx == liveIdx)
                 {
-                    const uintptr_t comp = CompForCharacter(liveChar);
-                    if (comp) return comp;
-                }
-
-                const uintptr_t hooked = Dye::HookedClientComp();
-                if (hooked)
-                {
-                    uintptr_t hookedOwner = 0;
-                    const bool ownerKnown =
-                        ReadPtr(hooked + kOff_EquipComp_Owner, &hookedOwner);
-                    if (!liveChar || (ownerKnown && hookedOwner == liveChar))
+                    const uintptr_t liveChar = Inventory::ClientCharacterAddr();
+                    if (liveChar)
                     {
-                        const int id = Inventory::IdentifyCharacterFromComp(hooked);
-                        if (id < 0 || id == targetIdx) return hooked;
-                    }
-                }
-
-                if (liveIdx > 0 && liveIdx < 3)
-                {
-                    const uintptr_t liveActor = Player::GetActor(liveIdx);
-                    if (liveActor)
-                    {
-                        const uintptr_t comp = CompForCharacter(liveActor);
+                        const uintptr_t comp = CompForCharacter(liveChar);
                         if (comp) return comp;
                     }
+                    const uintptr_t active = Dye::ActiveClientComp();
+                    if (active && CompValid(active)) return active;
                 }
-                return 0; // never another character's component
+
+                const uintptr_t actor = Inventory::CharacterAddr(targetIdx);
+                if (actor)
+                {
+                    const uintptr_t comp = CompForCharacter(actor);
+                    if (comp) return comp;
+                }
+                const uintptr_t directActor = Player::GetActor(targetIdx);
+                if (directActor)
+                {
+                    const uintptr_t comp = CompForCharacter(directActor);
+                    if (comp) return comp;
+                }
+                return 0;
             }
 
-            // Off-screen selection: strict identity lookup only.
-            const uintptr_t actor = Inventory::CharacterAddr(targetIdx);
-            if (actor)
+            // 2. Kliff (0) / Active player character
+            const uintptr_t liveChar = Inventory::ClientCharacterAddr();
+            if (liveChar)
             {
-                const uintptr_t comp = CompForCharacter(actor);
-                if (comp)
-                {
-                    const int id = Inventory::IdentifyCharacterFromComp(comp);
-                    if (id < 0 || id == targetIdx) return comp;
-                }
+                const uintptr_t comp = CompForCharacter(liveChar);
+                if (comp) return comp;
             }
-            if (targetIdx > 0 && targetIdx < 3)
+            const uintptr_t actor0 = Inventory::CharacterAddr(0);
+            if (actor0)
             {
-                for (int p = 0; p < 3; ++p)
-                {
-                    const uintptr_t directActor = Player::GetActor(p);
-                    if (directActor)
-                    {
-                        const uintptr_t comp = CompForCharacter(directActor);
-                        if (comp)
-                        {
-                            const int id = Inventory::IdentifyCharacterFromComp(comp);
-                            if (id == targetIdx || (p == targetIdx && id < 0))
-                                return comp;
-                        }
-                    }
-                }
+                const uintptr_t comp = CompForCharacter(actor0);
+                if (comp) return comp;
             }
+            const uintptr_t direct0 = Player::GetActor(0);
+            if (direct0)
+            {
+                const uintptr_t comp = CompForCharacter(direct0);
+                if (comp) return comp;
+            }
+            const uintptr_t active = Dye::ActiveClientComp();
+            if (active && CompValid(active)) return active;
             return 0;
         }
 
-        // Server-authority mirror with the same strict routing as dye.cpp.
         uintptr_t ServerComp()
         {
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
             const int targetIdx = (s_activeCharIdx < 0) ? liveIdx : s_activeCharIdx;
 
-            if (targetIdx == liveIdx)
+            // 1. If companion is explicitly selected (Damiane = 1, Oongka = 2), resolve companion server actor
+            if (targetIdx > 0)
             {
-                const uintptr_t serverChar = Inventory::ServerCharacterAddr();
-                if (serverChar)
+                const uintptr_t actor = Inventory::CharacterAddr(targetIdx);
+                if (actor)
                 {
-                    const uintptr_t comp = CompForCharacter(serverChar);
+                    const uintptr_t comp = CompForCharacter(actor);
                     if (comp) return comp;
                 }
+                const uintptr_t directActor = Player::GetActor(targetIdx);
+                if (directActor)
+                {
+                    const uintptr_t comp = CompForCharacter(directActor);
+                    if (comp) return comp;
+                }
+                return 0;
             }
 
-            const uintptr_t actor = Inventory::CharacterAddr(targetIdx);
-            if (actor)
+            // 2. Kliff (0) / Server character container
+            const uintptr_t serverChar = Inventory::ServerCharacterAddr();
+            if (serverChar)
             {
-                const uintptr_t comp = CompForCharacter(actor);
-                if (comp)
-                {
-                    const int id = Inventory::IdentifyCharacterFromComp(comp);
-                    if (id < 0 || id == targetIdx) return comp;
-                }
+                const uintptr_t comp = CompForCharacter(serverChar);
+                if (comp) return comp;
             }
-            if (targetIdx > 0 && targetIdx < 3)
+            const uintptr_t actor0 = Inventory::CharacterAddr(0);
+            if (actor0)
             {
-                for (int p = 0; p < 3; ++p)
-                {
-                    const uintptr_t directActor = Player::GetActor(p);
-                    if (directActor && directActor != actor)
-                    {
-                        const uintptr_t comp = CompForCharacter(directActor);
-                        if (comp)
-                        {
-                            const int id = Inventory::IdentifyCharacterFromComp(comp);
-                            if (id == targetIdx || (p == targetIdx && id < 0))
-                                return comp;
-                        }
-                    }
-                }
+                const uintptr_t comp = CompForCharacter(actor0);
+                if (comp) return comp;
             }
             return 0;
         }
-
         bool IsDummyOrUnarmed(uint16_t typeId, const char* name)
         {
             if (typeId == 0 || typeId == kInvSlot_EmptyType) return true;
