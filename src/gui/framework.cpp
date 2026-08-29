@@ -116,9 +116,9 @@ namespace trinity::ui
 
         const char* charName = game::Equipment::CharacterName(game::Equipment::GetActiveCharacter());
         if (charName && charName[0])
-            snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s  •  %s", si.slotName, charName);
+            snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s  •  %s", LOC(si.slotName), LOC(charName));
         else
-            snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s", si.slotName);
+            snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s", LOC(si.slotName));
 
         g_selectedTooltip.refineLevel     = si.refineLevel;
         g_selectedTooltip.durability      = si.durability;
@@ -1288,9 +1288,9 @@ namespace trinity::ui
                     dl->AddText(g_fontBody, fSz, ImVec2(txtX, txtY), IM_COL32(200, 200, 210, 255), rgbBuf);
                     txtY += fSz + 2.0f * s;
 
-                    static const char* const kMatNames[] = { "Natural", "Cloth", "Leather", "Silk", "Iron", "Steel", "Gold", "Velvet", "Brass", "Silver", "Enamel" };
+                    static const char* const kMatNames[] = { LOC("Natural"), LOC("Cloth"), LOC("Leather"), LOC("Silk"), LOC("Iron"), LOC("Steel"), LOC("Gold"), LOC("Velvet"), LOC("Brass"), LOC("Silver"), LOC("Enamel") };
                     int matId = g_selectedTooltip.dyeMaterial;
-                    const char* matStr = (matId >= 0 && matId <= 10) ? kMatNames[matId] : "Custom";
+                    const char* matStr = (matId >= 0 && matId <= 10) ? kMatNames[matId] : LOC("Custom");
                     char matBuf[48];
                     snprintf(matBuf, sizeof(matBuf), "%s: %s (%d%%)", LOC("Mat"), matStr, g_selectedTooltip.dyeCondition);
                     dl->AddText(g_fontBody, fSz * 0.92f, ImVec2(txtX, txtY), theme::Accent, matBuf);

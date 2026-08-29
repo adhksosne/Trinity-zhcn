@@ -203,7 +203,7 @@ namespace trinity::gui
             if (targetIdx == 1 || targetIdx == 2)
             {
                 const char* name = game::Equipment::CharacterName(targetIdx);
-                ui::Toast(LOC("Dye applied to %s"), name);
+                ui::Toast(LOC("Dye applied to %s"), LOC(name));
             }
             else
             {
@@ -275,9 +275,9 @@ namespace trinity::gui
         }
         char sub[64];
         if (activeZone == 0)
-            snprintf(sub, sizeof(sub), "%s  •  %s", curSlot.slotName[0] ? curSlot.slotName : LOC("Dye Preview"), LOC("All Zones"));
+            snprintf(sub, sizeof(sub), "%s  •  %s", curSlot.slotName[0] ? LOC(curSlot.slotName) : LOC("Dye Preview"), LOC("All Zones"));
         else
-            snprintf(sub, sizeof(sub), "%s  •  %s %d", curSlot.slotName[0] ? curSlot.slotName : LOC("Dye Preview"), LOC("Zone"), activeZone);
+            snprintf(sub, sizeof(sub), "%s  •  %s %d", curSlot.slotName[0] ? LOC(curSlot.slotName) : LOC("Dye Preview"), LOC("Zone"), activeZone);
 
         ui::SetDyePreviewTooltip(curSlot.itemName[0] ? curSlot.itemName : s_dyeItem,
                                 curSlot.icon, sub, activeZone, activeRGB,
@@ -302,7 +302,7 @@ namespace trinity::gui
         }
         else
         {
-            static const char* const kCharNames[] = { "Kliff", "Damiane", "Oongka" };
+            static const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
             int dyeChar = game::Dye::GetActiveCharacter();
             if (ui::Combo(LOC("Character"), &dyeChar, kCharNames, 3, LOC("Select which character's armor to dye.")))
             {
@@ -390,10 +390,10 @@ namespace trinity::gui
             char label[160];
             if (si.dyeCount > 0)
                 snprintf(label, sizeof(label), "%s - %s  (%u/%d %s)",
-                         si.slotName, si.itemName, si.dyeCount, si.maxZones, LOC("zones dyed"));
+                         LOC(si.slotName), si.itemName, si.dyeCount, si.maxZones, LOC("zones dyed"));
             else
                 snprintf(label, sizeof(label), "%s - %s  (%d %s)",
-                         si.slotName, si.itemName, si.maxZones, LOC("zones"));
+                         LOC(si.slotName), si.itemName, si.maxZones, LOC("zones"));
 
             if (ui::SubmenuItem(label, si.icon[0] ? si.icon : nullptr, "dyeedit",
                                 LOC("Recolor this piece.")))
@@ -621,7 +621,7 @@ namespace trinity::gui
     {
         ui::Begin();
 
-        static const char* const kCharNames[] = { "Kliff", "Damiane", "Oongka" };
+        static const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
         int eqChar = game::Equipment::GetActiveCharacter();
         if (ui::Combo(LOC("Character"), &eqChar, kCharNames, 3, LOC("Select which character's equipment to view and edit.")))
         {
