@@ -256,7 +256,14 @@ namespace trinity::ui
     // --- Fonts / style --------------------------------------------------------
     void InitStyle(float uiScale)
     {
-        g_scale = uiScale < 0.5f ? 0.5f : uiScale;
+        // Guard NaN (never >= 0.5) and absurd values: on 2160p uiScale = 2.0 *
+        // menuScale, so menuScale 2.5 yields g_scale 5.0 and a ~105pt CJK font
+        // atlas that overflows ImGui and crashes the process (also on reload,
+        // since the value persists in Trinity.ini). Cap at 3.0 and floor NaN.
+        if (!(uiScale >= 0.5f))       g_scale = 1.0f; // NaN / unparsed garbage
+        else if (uiScale > 3.0f)      g_scale = 3.0f; // CJK atlas overflow guard
+        else if (uiScale < 0.5f)      g_scale = 0.5f;
+        else                          g_scale = uiScale;
 
         ImGuiIO& io = ImGui::GetIO();
         io.Fonts->Clear(); // Allow runtime rebuilding by clearing existing fonts
