@@ -412,27 +412,27 @@ namespace trinity::ui
         const char* primaryBody = segoePath;
         const char* primaryBold = seguisbPath;
         const char* primaryTitle = segoeuibPath;
-        float bodySize  = (21.0f * g_scale < 40.0f) ? 21.0f * g_scale : 40.0f;
-        float boldSize  = (21.0f * g_scale < 40.0f) ? 21.0f * g_scale : 40.0f;
-        float titleSize = (30.0f * g_scale < 56.0f) ? 30.0f * g_scale : 56.0f;
+        float bodySize  = (21.0f * g_scale < 42.0f) ? 21.0f * g_scale : 42.0f;
+        float boldSize  = (21.0f * g_scale < 42.0f) ? 21.0f * g_scale : 42.0f;
+        float titleSize = (30.0f * g_scale < 60.0f) ? 30.0f * g_scale : 60.0f;
 
         if (st.useCustomFont && st.customFont[0] != '\0' && GetFileAttributesA(st.customFont) != INVALID_FILE_ATTRIBUTES)
         {
             primaryBody = st.customFont;
             primaryBold = st.customFont;
             primaryTitle = st.customFont;
-            bodySize  = (22.0f * g_scale < 40.0f) ? 22.0f * g_scale : 40.0f;
-            boldSize  = (22.0f * g_scale < 40.0f) ? 22.0f * g_scale : 40.0f;
-            titleSize = (35.0f * g_scale < 56.0f) ? 35.0f * g_scale : 56.0f;
+            bodySize  = (22.0f * g_scale < 42.0f) ? 22.0f * g_scale : 42.0f;
+            boldSize  = (22.0f * g_scale < 42.0f) ? 22.0f * g_scale : 42.0f;
+            titleSize = (35.0f * g_scale < 60.0f) ? 35.0f * g_scale : 60.0f;
         }
         else if (st.builtInFontIndex == 1 && GetFileAttributesA(impactPath) != INVALID_FILE_ATTRIBUTES)
         {
             primaryBody = impactPath;
             primaryBold = impactPath;
             primaryTitle = impactPath;
-            bodySize  = (22.0f * g_scale < 40.0f) ? 22.0f * g_scale : 40.0f;
-            boldSize  = (22.0f * g_scale < 40.0f) ? 22.0f * g_scale : 40.0f;
-            titleSize = (34.0f * g_scale < 56.0f) ? 34.0f * g_scale : 56.0f;
+            bodySize  = (22.0f * g_scale < 42.0f) ? 22.0f * g_scale : 42.0f;
+            boldSize  = (22.0f * g_scale < 42.0f) ? 22.0f * g_scale : 42.0f;
+            titleSize = (34.0f * g_scale < 60.0f) ? 34.0f * g_scale : 60.0f;
         }
         else if (st.builtInFontIndex == 2 && (GetFileAttributesA(georgiaBdPath) != INVALID_FILE_ATTRIBUTES || GetFileAttributesA(georgiaPath) != INVALID_FILE_ATTRIBUTES))
         {
@@ -440,9 +440,9 @@ namespace trinity::ui
             primaryBody = gPath;
             primaryBold = gPath;
             primaryTitle = gPath;
-            bodySize  = (21.0f * g_scale < 40.0f) ? 21.0f * g_scale : 40.0f;
-            boldSize  = (21.0f * g_scale < 40.0f) ? 21.0f * g_scale : 40.0f;
-            titleSize = (32.0f * g_scale < 56.0f) ? 32.0f * g_scale : 56.0f;
+            bodySize  = (21.0f * g_scale < 42.0f) ? 21.0f * g_scale : 42.0f;
+            boldSize  = (21.0f * g_scale < 42.0f) ? 21.0f * g_scale : 42.0f;
+            titleSize = (32.0f * g_scale < 60.0f) ? 32.0f * g_scale : 60.0f;
         }
 
         g_fontBody = LoadFontWithFallbacks(primaryBody,
