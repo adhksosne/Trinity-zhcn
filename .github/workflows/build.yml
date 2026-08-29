@@ -1,8 +1,13 @@
-﻿name: Build Trinity (zh-CN)
+name: Build Trinity (zh-CN)
 
 on:
   push:
     branches: [ master, main ]
+    paths:
+      - 'src/**'
+      - 'languages/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:
