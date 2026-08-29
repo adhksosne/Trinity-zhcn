@@ -2629,7 +2629,7 @@ namespace trinity::gui
     {
         switch (vk)
         {
-        case 0:           return "None";
+        case 0:           return LOC("None");
         case VK_INSERT:   return "Insert";
         case VK_DELETE:   return "Delete";
         case VK_HOME:     return "Home";
@@ -2684,7 +2684,7 @@ namespace trinity::gui
                 if (buf[0]) strncat(buf, " + ", sizeof(buf) - strlen(buf) - 1);
                 strncat(buf, b.name, sizeof(buf) - strlen(buf) - 1);
             }
-        return buf[0] ? buf : "None";
+        return buf[0] ? buf : LOC("None");
     }
 
     // Lowest virtual-key currently held (mouse buttons 0x01-0x06 skipped),

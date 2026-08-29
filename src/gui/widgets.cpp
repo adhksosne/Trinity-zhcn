@@ -1574,8 +1574,8 @@ namespace trinity::ui
             const float tw = g_fontBody->CalcTextSizeA(fz, FLT_MAX, 0.0f, t).x;
             dl->AddText(g_fontBody, fz, ImVec2(x + (w - tw) * 0.5f, ty), theme::TextDim, t);
         };
-        title("Keyboard",   keyX);
-        title("Controller", padX);
+        title(LOC("Keyboard"),   keyX);
+        title(LOC("Controller"), padX);
 
         // The header eats vertical space before the first row, but End()
         // positions the selection highlight and scrollbar from g_listTop using
