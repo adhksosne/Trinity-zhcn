@@ -3248,62 +3248,23 @@ namespace trinity::game
             }
 
             char key[96] = "";
-            char name[96] = "";
             KeyForType(tid, key, sizeof(key));
-            Inventory::NameForTypeId(tid, name, sizeof(name));
 
-            // Damiane (1): Royal Oath, Caliburn, muskets, rapiers, fencing blades, Spencer, Dewhaven, Rivenheim Cloth Armor
-            if ((key[0] && (ContainsCi(key, "Damian") || ContainsCi(key, "Demian") || ContainsCi(key, "Demeniss") ||
-                            ContainsCi(key, "Rapier") || ContainsCi(key, "Musket") || ContainsCi(key, "Caliburn") ||
-                            ContainsCi(key, "RoyalOath") || ContainsCi(key, "Royal_Oath") ||
-                            ContainsCi(key, "Spencer") || ContainsCi(key, "Dewhaven") ||
-                            ContainsCi(key, "WhiteWind") || ContainsCi(key, "White_Wind") ||
-                            ContainsCi(key, "Fencing") || ContainsCi(key, "DualBlade") || ContainsCi(key, "Dual_Blade") ||
-                            ContainsCi(key, "Hwando") || ContainsCi(key, "Rivenheim") || ContainsCi(key, "RivenheimCloth") ||
-                            ContainsCi(key, "Rivenheim_Cloth") || ContainsCi(key, "ClothArmor") || ContainsCi(key, "Cloth_Armor"))) ||
-                (name[0] && (ContainsCi(name, "Damian") || ContainsCi(name, "Demian") || ContainsCi(name, "Demeniss") ||
-                             ContainsCi(name, "Rapier") || ContainsCi(name, "Musket") || ContainsCi(name, "Caliburn") ||
-                             ContainsCi(name, "Royal Oath") || ContainsCi(name, "Spencer") || ContainsCi(name, "Dewhaven") ||
-                             ContainsCi(name, "White Wind") || ContainsCi(name, "Fencing") || ContainsCi(name, "Dual Blade") ||
-                             ContainsCi(name, "Hwando") || ContainsCi(name, "Rivenheim") || ContainsCi(name, "Cloth Armor"))))
+            // Damiane (1): signature gear only - Royal Oath, Caliburn, muskets, rapiers
+            if (key[0] && (ContainsCi(key, "Damian") || ContainsCi(key, "Demian") || ContainsCi(key, "Demeniss") ||
+                           ContainsCi(key, "Rapier") || ContainsCi(key, "Musket") || ContainsCi(key, "Caliburn") ||
+                           ContainsCi(key, "Spencer") || ContainsCi(key, "Dewhaven") ||
+                           ContainsCi(key, "WhiteWind") || ContainsCi(key, "White_Wind") || ContainsCi(key, "Hwando")))
                 return 1; // Damiane
-
-            // Oongka (2): Oongka, Tynion, Giant, Rocket, Cannon, Club, Hammer, Belkandor, Valortread, Ashen Wolf, Brass Warden, Kuku, Daeil, WellsBetrayer, Well, Silverwolf, Axe, Plate Armor
-            if ((key[0] && (ContainsCi(key, "Oongka") || ContainsCi(key, "Giant") || ContainsCi(key, "Tynion") ||
-                            ContainsCi(key, "Rocket") || ContainsCi(key, "Cannon") || ContainsCi(key, "Club") ||
-                            ContainsCi(key, "Hammer") || ContainsCi(key, "Greatshield") || ContainsCi(key, "Gauntlet") ||
-                            ContainsCi(key, "HeavyMace") || ContainsCi(key, "Heavy_Mace") || ContainsCi(key, "Valortread") ||
-                            ContainsCi(key, "Belkandor") || ContainsCi(key, "Ashen_Wolf") || ContainsCi(key, "AshenWolf") ||
-                            ContainsCi(key, "Brass_Warden") || ContainsCi(key, "BrassWarden") || ContainsCi(key, "Kuku") ||
-                            ContainsCi(key, "Daeil") || ContainsCi(key, "Troll") || ContainsCi(key, "Fist") ||
-                            ContainsCi(key, "Wells") || ContainsCi(key, "Well") || ContainsCi(key, "Betrayer") ||
-                            ContainsCi(key, "TwoHanded") || ContainsCi(key, "WarHammer") || ContainsCi(key, "Alebard") ||
-                            ContainsCi(key, "Silverwolf") || ContainsCi(key, "Silver_Wolf") || ContainsCi(key, "SilverWolf") ||
-                            ContainsCi(key, "Axe") || ContainsCi(key, "PlateArmor") || ContainsCi(key, "Plate_Armor") ||
-                            ContainsCi(key, "Horned") || ContainsCi(key, "HeavyPlate") || ContainsCi(key, "Heavy_Plate") ||
-                            ContainsCi(key, "HeavyArmor") || ContainsCi(key, "Heavy_Armor"))) ||
-                (name[0] && (ContainsCi(name, "Oongka") || ContainsCi(name, "Giant") || ContainsCi(name, "Tynion") ||
-                             ContainsCi(name, "Rocket") || ContainsCi(name, "Cannon") || ContainsCi(name, "Club") ||
-                             ContainsCi(name, "Hammer") || ContainsCi(name, "Greatshield") || ContainsCi(name, "Gauntlet") ||
-                             ContainsCi(name, "Heavy Mace") || ContainsCi(name, "Valortread") || ContainsCi(name, "Belkandor") ||
-                             ContainsCi(name, "Ashen Wolf") || ContainsCi(name, "Brass Warden") || ContainsCi(name, "Kuku") ||
-                             ContainsCi(name, "Daeil") || ContainsCi(name, "Troll") || ContainsCi(name, "Ordinary Gloves") ||
-                             ContainsCi(name, "Wells") || ContainsCi(name, "Well") || ContainsCi(name, "Betrayer") ||
-                             ContainsCi(name, "Two-Handed") || ContainsCi(name, "War Hammer") || ContainsCi(name, "Halberd") ||
-                             ContainsCi(name, "Silverwolf") || ContainsCi(name, "Silver Wolf") || ContainsCi(name, "Axe") ||
-                             ContainsCi(name, "Plate Armor") || ContainsCi(name, "Horned Helmet") || ContainsCi(name, "Horned") ||
-                             ContainsCi(name, "Heavy Plate") || ContainsCi(name, "Heavy Armor"))))
+            // Oongka (2): signature gear only - the wider upstream word list
+            // (Hammer/Fist/Well/Axe/Plate/TwoHanded/...) matched Kliff's generic
+            // weapons and misrouted his gear to Oongka.
+            if (key[0] && (ContainsCi(key, "Oongka") || ContainsCi(key, "Giant") || ContainsCi(key, "Tynion") ||
+                           ContainsCi(key, "Rocket") || ContainsCi(key, "Cannon") || ContainsCi(key, "Club")))
                 return 2; // Oongka
-
-            // Kliff (0): Darkness King, Balgran, Aeserion, Fated Shadow, Drake Shield, Icewing, Longsword
-            if ((key[0] && (ContainsCi(key, "Kliff") || ContainsCi(key, "DarknessKing") || ContainsCi(key, "Darkness_King") ||
-                            ContainsCi(key, "Balgran") || ContainsCi(key, "Aeserion") ||
-                            ContainsCi(key, "FatedShadow") || ContainsCi(key, "Fated_Shadow") ||
-                            ContainsCi(key, "DrakeShield") || ContainsCi(key, "Drake_Shield") ||
-                            ContainsCi(key, "Icewing") || ContainsCi(key, "Longsword"))) ||
-                (name[0] && (ContainsCi(name, "Kliff") || ContainsCi(name, "Darkness King") || ContainsCi(name, "Balgran") ||
-                             ContainsCi(name, "Aeserion") || ContainsCi(name, "Fated Shadow") ||
-                             ContainsCi(name, "Drake Shield") || ContainsCi(name, "Icewing") || ContainsCi(name, "Longsword"))))
+            // Kliff (0): signature gear only
+            if (key[0] && (ContainsCi(key, "Kliff") || ContainsCi(key, "DarknessKing") || ContainsCi(key, "Darkness_King") ||
+                           ContainsCi(key, "Balgran") || ContainsCi(key, "Aeserion") || ContainsCi(key, "Greatsword")))
                 return 0; // Kliff
         }
         return -1; // Unrecognized
