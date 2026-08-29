@@ -304,6 +304,7 @@ namespace trinity::gui
         {
             static const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
             int dyeChar = game::Dye::GetActiveCharacter();
+            if (dyeChar < 0 || dyeChar > 2) dyeChar = 0; // same clamp as equipment: auto-detect can fail (-1)
             if (ui::Combo(LOC("Character"), &dyeChar, kCharNames, 3, LOC("Select which character's armor to dye.")))
             {
                 game::Dye::SetActiveCharacter(dyeChar);
@@ -603,6 +604,7 @@ namespace trinity::gui
 
         static const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
         int eqChar = game::Equipment::GetActiveCharacter();
+        if (eqChar < 0 || eqChar > 2) eqChar = 0; // auto-detect can fail (-1): clamp to Kliff so the combo preview never reads out of bounds
         if (ui::Combo(LOC("Character"), &eqChar, kCharNames, 3, LOC("Select which character's equipment to view and edit.")))
         {
             game::Equipment::SetActiveCharacter(eqChar);
