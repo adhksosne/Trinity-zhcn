@@ -1,4 +1,4 @@
-# Trinity-zhcn — 黑色沙漠（Crimson Desert）Mod 菜单（简体中文版）
+# Trinity-zhcn — 红色沙漠（Crimson Desert）Mod 菜单（简体中文版）
 
 基于 [ReXooGen/Trinity](https://github.com/ReXooGen/Trinity)（vTweak by Lian）二次开发的简体中文汉化与修复版，适配 TU 2.00.00 / 2.00.01（PE 1.0.0.2658）。
 

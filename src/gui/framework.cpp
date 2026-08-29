@@ -1279,12 +1279,12 @@ namespace trinity::ui
                     const float fSz = g_fontBody->FontSize * 0.78f;
 
                     char hexBuf[32];
-                    snprintf(hexBuf, sizeof(hexBuf), "HEX: #%02X%02X%02X", ar, ag, ab);
+                    snprintf(hexBuf, sizeof(hexBuf), "%s: #%02X%02X%02X", LOC("HEX"), ar, ag, ab);
                     dl->AddText(g_fontBold, fSz * 1.05f, ImVec2(txtX, txtY), theme::TextBright, hexBuf);
                     txtY += fSz + 2.0f * s;
 
                     char rgbBuf[32];
-                    snprintf(rgbBuf, sizeof(rgbBuf), "RGB: (%d, %d, %d)", ar, ag, ab);
+                    snprintf(rgbBuf, sizeof(rgbBuf), "%s: (%d, %d, %d)", LOC("RGB"), ar, ag, ab);
                     dl->AddText(g_fontBody, fSz, ImVec2(txtX, txtY), IM_COL32(200, 200, 210, 255), rgbBuf);
                     txtY += fSz + 2.0f * s;
 
@@ -1292,7 +1292,7 @@ namespace trinity::ui
                     int matId = g_selectedTooltip.dyeMaterial;
                     const char* matStr = (matId >= 0 && matId <= 10) ? kMatNames[matId] : "Custom";
                     char matBuf[48];
-                    snprintf(matBuf, sizeof(matBuf), "Mat: %s (%d%%)", matStr, g_selectedTooltip.dyeCondition);
+                    snprintf(matBuf, sizeof(matBuf), "%s: %s (%d%%)", LOC("Mat"), matStr, g_selectedTooltip.dyeCondition);
                     dl->AddText(g_fontBody, fSz * 0.92f, ImVec2(txtX, txtY), theme::Accent, matBuf);
                 }
                 curY += activeCardH + tPad * 0.75f;
@@ -1301,7 +1301,7 @@ namespace trinity::ui
                 {
                     dl->AddText(g_fontBold, g_fontBold->FontSize * 0.82f,
                                 ImVec2(tmn.x + tPad + 4.0f * s, curY),
-                                theme::Accent, "Outfit Zone Palette (1-12)");
+                                theme::Accent, LOC("Outfit Zone Palette (1-12)"));
                     curY += paletteHdrH;
 
                     const int cols = 6;
@@ -1359,7 +1359,7 @@ namespace trinity::ui
                     const float hintFSz = g_fontBody->FontSize * 0.74f;
                     dl->AddText(g_fontBody, hintFSz,
                                 ImVec2(tmn.x + tPad + 2.0f * s, curY),
-                                theme::TextDim, "Instant Live Dye Preview");
+                                theme::TextDim, LOC("Instant Live Dye Preview"));
                 }
             }
             else
@@ -1535,16 +1535,16 @@ namespace trinity::ui
                     if (rExp > 0 || rBonus > 0)
                     {
                         char rfExpBuf[32];
-                        snprintf(rfExpBuf, sizeof(rfExpBuf), "Reinforcement  %d/100", rExp);
+                        snprintf(rfExpBuf, sizeof(rfExpBuf), "%s  %d/100", LOC("Reinforcement"), rExp);
                         dl->AddText(g_fontBody, statFSz * 0.90f,
                                     ImVec2(statsMn.x + 8.0f * s, statY),
                                     theme::Text, rfExpBuf);
 
                         char rfBonusBuf[48];
                         if (atkVal > 0)
-                            snprintf(rfBonusBuf, sizeof(rfBonusBuf), "Reinforcement: Attack +%d", rBonus);
+                            snprintf(rfBonusBuf, sizeof(rfBonusBuf), "%s: %s +%d", LOC("Reinforcement"), LOC("Attack"), rBonus);
                         else
-                            snprintf(rfBonusBuf, sizeof(rfBonusBuf), "Reinforcement: Defense +%d", rBonus);
+                            snprintf(rfBonusBuf, sizeof(rfBonusBuf), "%s: %s +%d", LOC("Reinforcement"), LOC("Defense"), rBonus);
                         const float rfBonusW = g_fontBody->CalcTextSizeA(statFSz * 0.90f, FLT_MAX, 0.0f, rfBonusBuf).x;
                         dl->AddText(g_fontBody, statFSz * 0.90f,
                                     ImVec2(statsMx.x - rfBonusW - 8.0f * s, statY),
@@ -1555,9 +1555,9 @@ namespace trinity::ui
                     // --- Row 3: Refinement + 10-Segment Golden Bars ---
                     dl->AddText(g_fontBody, statFSz * 0.90f,
                                 ImVec2(statsMn.x + 8.0f * s, statY),
-                                theme::TextDim, "Refinement");
+                                theme::TextDim, LOC("Refinement"));
 
-                    const float refLblW = g_fontBody->CalcTextSizeA(statFSz * 0.90f, FLT_MAX, 0.0f, "Refinement").x;
+                    const float refLblW = g_fontBody->CalcTextSizeA(statFSz * 0.90f, FLT_MAX, 0.0f, LOC("Refinement")).x;
                     float barStartX = statsMn.x + 8.0f * s + refLblW + 8.0f * s;
                     const float segW = 3.5f * s;
                     const float segH = 8.5f * s;
@@ -1589,7 +1589,7 @@ namespace trinity::ui
 
                     // Right side: Sockets summary
                     char sockSummary[32];
-                    snprintf(sockSummary, sizeof(sockSummary), "%d / %d Sockets", filledS, maxSock);
+                    snprintf(sockSummary, sizeof(sockSummary), "%d / %d %s", filledS, maxSock, LOC("Sockets"));
                     const float sockSumW = g_fontBody->CalcTextSizeA(statFSz * 0.90f, FLT_MAX, 0.0f, sockSummary).x;
                     dl->AddText(g_fontBody, statFSz * 0.90f,
                                 ImVec2(statsMx.x - sockSumW - 8.0f * s, statY),
@@ -1600,9 +1600,9 @@ namespace trinity::ui
                     // Simpler 2-row layout for catalog / inventory preview
                     char refBuf[32];
                     if (refineLvl > 0)
-                        snprintf(refBuf, sizeof(refBuf), "Refine +%d", refineLvl);
+                        snprintf(refBuf, sizeof(refBuf), "%s +%d", LOC("Refine"), refineLvl);
                     else
-                        snprintf(refBuf, sizeof(refBuf), "Refine +0");
+                        snprintf(refBuf, sizeof(refBuf), "%s +0", LOC("Refine"));
 
                     dl->AddText(g_fontBold, statFSz,
                                 ImVec2(statsMn.x + 8.0f * s, statY),
@@ -1646,7 +1646,7 @@ namespace trinity::ui
                 const float dotsTotal = (maxSock - 1) * dotSpacing + dotR * 2.0f;
                 const float labelFSz  = g_fontBody->FontSize * 0.78f;
                 char sockLbl[48];
-                snprintf(sockLbl, sizeof(sockLbl), "%d Abyss Socket%s", maxSock, maxSock == 1 ? "" : "s");
+                snprintf(sockLbl, sizeof(sockLbl), "%d %s", maxSock, LOC("Abyss Socket"));
                 const float lblW      = g_fontBody->CalcTextSizeA(labelFSz, FLT_MAX, 0.0f, sockLbl).x;
                 const float rowW      = dotsTotal + 8.0f * s + lblW;
                 float dotX = tmn.x + (tWidth - rowW) * 0.5f + dotR;

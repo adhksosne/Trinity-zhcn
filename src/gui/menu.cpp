@@ -275,9 +275,9 @@ namespace trinity::gui
         }
         char sub[64];
         if (activeZone == 0)
-            snprintf(sub, sizeof(sub), "%s  •  All Zones", curSlot.slotName[0] ? curSlot.slotName : "Dye Preview");
+            snprintf(sub, sizeof(sub), "%s  •  %s", curSlot.slotName[0] ? curSlot.slotName : LOC("Dye Preview"), LOC("All Zones"));
         else
-            snprintf(sub, sizeof(sub), "%s  •  Zone %d", curSlot.slotName[0] ? curSlot.slotName : "Dye Preview", activeZone);
+            snprintf(sub, sizeof(sub), "%s  •  %s %d", curSlot.slotName[0] ? curSlot.slotName : LOC("Dye Preview"), LOC("Zone"), activeZone);
 
         ui::SetDyePreviewTooltip(curSlot.itemName[0] ? curSlot.itemName : s_dyeItem,
                                 curSlot.icon, sub, activeZone, activeRGB,
@@ -396,7 +396,7 @@ namespace trinity::gui
                          si.slotName, si.itemName, si.maxZones, LOC("zones"));
 
             if (ui::SubmenuItem(label, si.icon[0] ? si.icon : nullptr, "dyeedit",
-                                "Recolor this piece."))
+                                LOC("Recolor this piece.")))
             {
                 // A different piece gets fresh pages (selection, scroll); the
                 // same piece keeps them, so hopping out and back in is free.
@@ -813,23 +813,23 @@ namespace trinity::gui
 
         // 1. Character Filter
         static const char* const kCharFilters[] = {
-            "All Characters",
-            "Current Character Only",
-            "Kliff Only",
-            "Damiane Only",
-            "Oongka Only"
+            LOC("All Characters"),
+            LOC("Current Character Only"),
+            LOC("Kliff Only"),
+            LOC("Damiane Only"),
+            LOC("Oongka Only")
         };
         ui::Combo(LOC("Character Filter"), &s_eqCharFilter, kCharFilters, 5,
                   LOC("Filter equipment suitable for this character or show all items."));
 
         // 2. Category / Slot Filter
         static const char* const kCategoryFilters[] = {
-            "All Categories",
-            "Matching Slot Only",
-            "Weapons",
-            "Shields & Off-Hand",
-            "Armor",
-            "Accessories"
+            LOC("All Categories"),
+            LOC("Matching Slot Only"),
+            LOC("Weapons"),
+            LOC("Shields & Off-Hand"),
+            LOC("Armor"),
+            LOC("Accessories")
         };
         ui::Combo(LOC("Category Filter"), &s_eqCategoryFilter, kCategoryFilters, 6,
                   LOC("Filter items by weapon, armor, shield, or slot compatibility."));
@@ -1049,12 +1049,12 @@ namespace trinity::gui
 
         // 1. Weather Presets & Overrides
         static const char* s_weathers[] = {
-            "Dynamic (Game Default)",
-            "Clear Sky (Sunny)",
-            "Overcast (Cloudy)",
-            "Rainy (Light Rain)",
-            "Thunderstorm (Storm)",
-            "Dense Fog / Mist"
+            LOC("Dynamic (Game Default)"),
+            LOC("Clear Sky (Sunny)"),
+            LOC("Overcast (Cloudy)"),
+            LOC("Rainy (Light Rain)"),
+            LOC("Thunderstorm (Storm)"),
+            LOC("Dense Fog / Mist")
         };
         int wIdx = st.weatherPreset;
         if (ui::Combo(LOC("Weather Preset"), &wIdx, s_weathers, 6, LOC("Select and lock active weather atmosphere.")))
@@ -2748,8 +2748,8 @@ namespace trinity::gui
         // While listening, the description spells out how to finish; otherwise
         // it's the action's own explanation.
         const char* rowDesc = desc;
-        if      (capKey) rowDesc = "Press the key you want to bind, or Esc to cancel.";
-        else if (capPad) rowDesc = "Press the button or combo you want to bind, or Esc to cancel.";
+        if      (capKey) rowDesc = LOC("Press the key you want to bind, or Esc to cancel.");
+        else if (capPad) rowDesc = LOC("Press the button or combo you want to bind, or Esc to cancel.");
 
         const int capCol = capKey ? 0 : capPad ? 1 : -1;
         switch (ui::BindRow(label, cursor, keyBuf, padBuf, capCol, rowDesc))
