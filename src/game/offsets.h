@@ -391,6 +391,19 @@ namespace trinity::game
         "48 8B C4 48 89 58 10 44 88 48 20 55 56 57 41 54 41 55 41 56 41 57 "
         "48 8D A8 68 F8 FF FF 48 81 EC 60 08 00 00";
 
+    // --- Free Flight: airborne (gliding) mover footprint --------------------
+    // The engine's air/glide locomotion function. We locate its code range
+    // (between the 0xCC int3 pads around the signature match) and, inside
+    // hkLocoStep, only apply Free Flight vertical control when the call comes
+    // from within that range - i.e. the player is actually gliding/airborne,
+    // so ground jog never triggers it. Reverse-engineered from ReXooGen v0.18.1
+    // (signature `45 33 C9 4C 8D 45 ?? C5 FA 10 0E 48 8B CB E8`, same 0xCC
+    // pad boundary scan). Matched against the 2.00.01 build this fork targets.
+    inline constexpr const char* kSig_FlightAirborne =
+        "45 33 C9 4C 8D 45 ?? C5 FA 10 0E 48 8B CB E8";
+    // Max distance to scan for a 0xCC pad pair framing the function body.
+    inline constexpr uintptr_t kFlight_AirbornePadScan = 0x4000;
+
     // --- Fast travel / map-gimmick teleport --------------------------------
     // The world map fast-travels through sub_505140(ignored, sceneId, nodeIndex)
     // (IDB 0x505140): a normal, server-blessed travel that streams properly (the

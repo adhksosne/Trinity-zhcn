@@ -1292,6 +1292,48 @@ namespace trinity::game
         // attacks are never touched. Published so the HUD can light "FLY".
         std::atomic<bool> g_flightEngaged{false};
 
+        // --- Free Flight airborne (gliding) footprint -------------------------
+        // Code range [start,end) of the engine's air/glide locomotion function,
+        // framed by its 0xCC int3 pads. hkLocoStep checks _ReturnAddress() against
+        // this range so vertical flight control only runs while actually airborne
+        // (gliding), never during ground jog. Mirrors ReXooGen v0.18.1's approach.
+        uintptr_t g_airMoverStart = 0;
+        uintptr_t g_airMoverEnd   = 0;
+    
+        bool ResolveAirborneMover()
+        {
+            if (g_airMoverStart) return true;
+            const uintptr_t m = mem::FindPattern(kSig_FlightAirborne);
+            if (!m) return false;
+    
+            // Scan backward for the int3 pad that opens the function body.
+            uintptr_t start = 0;
+            for (uintptr_t i = 2; i < kFlight_AirbornePadScan; ++i)
+            {
+                const uint8_t b = *reinterpret_cast<uint8_t*>(m - i);
+                if (b == 0xCC)
+                {
+                    start = m - i + 2; // the byte after the pad
+                    break;
+                }
+            }
+            // Scan forward for the int3 pad that closes it.
+            uintptr_t end = 0;
+            for (uintptr_t j = 0; j < kFlight_AirbornePadScan; ++j)
+            {
+                const uint8_t b = *reinterpret_cast<uint8_t*>(m + j);
+                if (b == 0xCC)
+                {
+                    end = m + j;
+                    break;
+                }
+            }
+            if (!start || !end || end <= start) return false;
+            g_airMoverStart = start;
+            g_airMoverEnd = end;
+            return true;
+        }
+    
         struct FlyInputState
         {
             float moveX = 0.0f; // -1.0 (left) to +1.0 (right)
@@ -1402,146 +1444,42 @@ namespace trinity::game
                 }
             }
 
-            // --- Free Flight: Full 3D directional propulsion & hover suspension ---
-            static bool s_flightAscended = false;
-            static float s_lastFlightY = 0.0f;
-            static int s_groundedFrames = 0;
-            static int s_forceLandFrames = 0; // Trigger Havok engine ground impact
-
+            // --- Free Flight (guji-style port) -------------------------------
+            // Only when the player is genuinely airborne (gliding): this call's
+            // return address lands inside the air/glide mover footprint. No
+            // state machine, no horizontal modulation, no forced landing - we
+            // simply mirror the rise/sink buttons onto the vertical velocity
+            // (vel[1]) and let the engine resume its own physics the moment the
+            // button is released (nothing is written back).
             bool flyingNow = false;
-
             if (isPlayer && st.freeFlight && vel)
             {
-                const FlyInputState in = PollFlyInputs(st);
-                const bool hasHorizInput = (std::abs(in.moveX) > 0.05f || std::abs(in.moveZ) > 0.05f);
+                // Lazy retry: if the airborne footprint was not yet resolved at
+                // install (e.g. world not loaded), keep trying on later frames.
+                const bool airborne =
+                    (!g_airMoverStart && !ResolveAirborneMover()) ? false :
+                    (reinterpret_cast<uintptr_t>(_ReturnAddress()) >= g_airMoverStart &&
+                     reinterpret_cast<uintptr_t>(_ReturnAddress()) < g_airMoverEnd);
 
-                // Ascend input activates airborne flight mode
-                if (in.up)
+                if (airborne && !st.menuOpen && !st.textCapture)
                 {
-                    s_flightAscended = true;
-                    s_groundedFrames = 0;
-                }
+                    const FlyInputState in = PollFlyInputs(st);
+                    const bool rise = in.up && !in.down;
+                    const bool sink = in.down && !in.up;
 
-                // If user is holding down to descend, detect ground contact and return to walking
-                if (s_flightAscended && in.down)
-                {
-                    const float curY = g_posY.load(std::memory_order_relaxed);
-                    if (std::abs(curY - s_lastFlightY) < 0.05f)
+                    if (rise || sink)
                     {
-                        if (++s_groundedFrames > 10)
-                        {
-                            s_flightAscended = false;
-                            s_groundedFrames = 0;
-                            s_forceLandFrames = 2; // Force ground impact to restore friction
-                        }
-                    }
-                    else
-                    {
-                        s_groundedFrames = 0;
-                    }
-                    s_lastFlightY = curY;
-                }
-
-                // Buoyant micro-oscillation: keeps the Havok character velocity active so the engine
-                // fall-watchdog timer (void recovery / infinite fall reset) never triggers when hovering.
-                static uint64_t s_hoverCounter = 0;
-                ++s_hoverCounter;
-                const float hoverMicroLift = ((s_hoverCounter % 2) == 0) ? 0.004f : -0.004f;
-
-                if (s_flightAscended)
-                {
-                    // When mod menu is open or text is being captured while airborne, hover in place
-                    if (st.menuOpen || st.textCapture)
-                    {
-                        RawWriteFloat(vel,     0.0f);
-                        RawWriteFloat(vel + 1, hoverMicroLift);
-                        RawWriteFloat(vel + 2, 0.0f);
+                        constexpr float kMaxSafeVerticalSpeed = 35.0f;
+                        const float vert = (st.flightSpeed > kMaxSafeVerticalSpeed) ? kMaxSafeVerticalSpeed : st.flightSpeed;
+                        RawWriteFloat(vel + 1, rise ? vert : -vert);
                         flyingNow = true;
                     }
-                    else
-                    {
-                        // Vertical flight: Up (ascend), Down (descend), or Hover (stay aloft)
-                        constexpr float kMaxSafeVerticalSpeed = 35.0f;
-                        const float safeFlightSpeed = (st.flightSpeed > kMaxSafeVerticalSpeed) ? kMaxSafeVerticalSpeed : st.flightSpeed;
-
-                        if (in.up && !in.down)
-                        {
-                            RawWriteFloat(vel + 1, safeFlightSpeed);
-                            flyingNow = true;
-                        }
-                        else if (in.down && !in.up)
-                        {
-                            RawWriteFloat(vel + 1, -safeFlightSpeed);
-                            flyingNow = true;
-                        }
-                        else
-                        {
-                            // Hover in air: buoyant lift holds altitude
-                            RawWriteFloat(vel + 1, hoverMicroLift);
-                            flyingNow = true;
-                        }
-
-                        // Horizontal Flight: Scale native camera-relative movement smoothly with hard safety ceiling
-                        float vx = 0.0f, vz = 0.0f;
-                        RawReadFloat(vel, &vx);
-                        RawReadFloat(vel + 2, &vz);
-                        const float curSpeedSq = vx * vx + vz * vz;
-
-                        if (curSpeedSq > 0.0001f && hasHorizInput)
-                        {
-                            const float horizMult = (st.flightSpeed >= 1.0f) ? (st.flightSpeed * 0.75f + 1.0f) : 1.0f;
-                            const float speedMult = (st.superRun && st.superRunMult > 1.0f) ? st.superRunMult : 1.0f;
-                            float targetVx = vx * horizMult * speedMult;
-                            float targetVz = vz * horizMult * speedMult;
-
-                            // BlackSpace Engine Havok character controller safe maximum speed limit (35.0f m/s)
-                            // Speeds beyond ~35.0f-40.0f while Gliding cause physics broadphase overflow, wing glider stall, and CTD.
-                            constexpr float kMaxSafeFlightSpeed = 35.0f;
-                            const float targetSpeed = std::sqrt(targetVx * targetVx + targetVz * targetVz);
-                            if (targetSpeed > kMaxSafeFlightSpeed)
-                            {
-                                const float scale = kMaxSafeFlightSpeed / targetSpeed;
-                                targetVx *= scale;
-                                targetVz *= scale;
-                            }
-
-                            RawWriteFloat(vel,     targetVx);
-                            RawWriteFloat(vel + 2, targetVz);
-                            flyingNow = true;
-                        }
-                        else if (!hasHorizInput)
-                        {
-                            // No movement input: dampen horizontal momentum to hover cleanly in place
-                            RawWriteFloat(vel,     0.0f);
-                            RawWriteFloat(vel + 2, 0.0f);
-                        }
-                    }
+                    // rise||sink == false (released, or both held): write nothing.
+                    // The engine's gravity/glide physics take over -> natural descent.
                 }
             }
-            else
-            {
-                if (s_flightAscended)
-                {
-                    s_forceLandFrames = 2; // Force ground impact if disabled while flying
-                }
-                s_flightAscended = false;
-                s_groundedFrames = 0;
-            }
-
             if (isPlayer)
-            {
                 g_flightEngaged.store(flyingNow, std::memory_order_relaxed);
-                
-                // Force a gentle downward spike so the physics engine registers a soft landing
-                // and kill horizontal momentum so they don't air-dash into the ground.
-                if (s_forceLandFrames > 0 && vel)
-                {
-                    RawWriteFloat(vel, 0.0f);
-                    RawWriteFloat(vel + 1, -4.0f);
-                    RawWriteFloat(vel + 2, 0.0f);
-                    s_forceLandFrames--;
-                }
-            }
 
             // Ground locomotion: Super Run applies when player is on ground / not airborne flight
             if (isPlayer && st.superRun && !flyingNow && st.superRunMult != 1.0f && vel)
@@ -1840,6 +1778,15 @@ namespace trinity::game
         // everything else still works without it).
         mem::InstallHook("teleport: locomotion-stepper", kSig_LocoStepper, "Super Run disabled",
                          &hkLocoStep, &oLocoStep, &g_locoStepTarget);
+
+        // Resolve the airborne (glide) mover footprint for Free Flight. If it
+        // does not resolve, Free Flight is inert (ground jog untouched) while
+        // Super Run / Super Jump stay available.
+        if (ResolveAirborneMover())
+            LOG_OK("teleport: raised airborne mover @ 0x%llX..0x%llX - Free Flight ready.",
+                   (unsigned long long)g_airMoverStart, (unsigned long long)g_airMoverEnd);
+        else
+            LOG_WARN("teleport: airborne mover NOT FOUND - Free Flight disabled (Super Run unaffected).");
 
         // v2.00.00 destination-update hook: the primary marker coordinate
         // source in 2.0 (the legacy kSig_MarkerPattern capture no longer
