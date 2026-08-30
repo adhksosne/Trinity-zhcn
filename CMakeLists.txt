@@ -92,6 +92,15 @@ target_compile_definitions(Trinity PRIVATE
     _CRT_SECURE_NO_WARNINGS
 )
 
+# Source AND execution charset UTF-8. CI runs on an English system (ACP 1252):
+# without this, MSVC decodes the BOM'd UTF-8 sources correctly but converts
+# narrow string literals to the execution charset, replacing every CJK
+# character with '?' — the embedded zh table compiled to garbage while the
+# BOM-less files (whose bytes passed through untouched) still worked.
+if(MSVC)
+    target_compile_options(Trinity PRIVATE /utf-8)
+endif()
+
 # .asi is just a DLL with a different extension; strip the lib prefix too.
 set_target_properties(Trinity PROPERTIES
     PREFIX ""
