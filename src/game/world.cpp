@@ -101,7 +101,7 @@ namespace trinity::game
         // apply) and the time-scale float (+0x54, 1.0 = normal). We set them
         // each frame before calling the original so the simulation runs at
         // gameSpeedMult; the scale is a direct sim-time multiplier, so the
-        // full 0.10..10.0 slider span works (live-confirmed
+        // full 0.10..5.0 slider span works (live-confirmed
         // on 2.00.00: both slow-mo and true fast-forward). When the toggle
         // is off we clear the flag and restore 1.0x once per frame; the BSS
         // path in Tick() is an independent 1.17/1.18 fallback (different memory).
@@ -121,7 +121,7 @@ namespace trinity::game
                     const State& st = State::Get();
                     if (st.gameSpeed)
                     {
-                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
+                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 5.0f);
                         Write8(timing + kOff_Timing_Flag, 1);
                         Write32(timing + kOff_Timing_Scale, FloatBits(mult));
                     }
@@ -602,7 +602,7 @@ namespace trinity::game
             // the multiplier scales sim time from there. Clamp both the factor
             // (to the slider's range) and the resulting delta (defensively, so a
             // bad value can never feed the sim an absurd timestep).
-            const float mult  = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
+            const float mult  = Clamp(st.gameSpeedMult, 0.1f, 5.0f);
             const float delta = Clamp(mult / kGameSpeed_BaselineFps, 1.0e-5f, 1.0f);
 
             // Value first, then arm the flag, so the timing update never reads a
