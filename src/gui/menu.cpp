@@ -111,18 +111,18 @@ namespace trinity::gui
         }
         changed |= ui::Toggle(LOC("Infinite Spirit"), &st.infSpirit,
                    LOC("Keeps your spirit / special ability gauge full."));
-        if (ui::Toggle(LOC("Auto Perfect Parry"), &st.easyParry,
+        if (ui::Toggle(LOC("Easy Parry"), &st.easyParry,
                    game::Player::JustCoreReady()
-                        ? LOC("Automatically trigger a Perfect Parry on any incoming enemy attack: take zero damage and stagger the attacker. Exclusive with Auto Perfect Evade.")
-                        : LOC("Auto Perfect Parry. Unavailable right now.")))
+                        ? LOC("Holding guard makes every incoming attack a Perfect Parry: zero damage and the attacker is staggered. Exclusive with Easy Evade.")
+                        : LOC("Easy Parry. Unavailable right now.")))
         {
             if (st.easyParry) st.easyEvade = false; // mutually exclusive
             changed = true;
         }
-        if (ui::Toggle(LOC("Auto Perfect Evade"), &st.easyEvade,
+        if (ui::Toggle(LOC("Easy Evade"), &st.easyEvade,
                    game::Player::JustCoreReady()
-                        ? LOC("Automatically trigger a Perfect Evade on any incoming enemy attack: take zero damage. Exclusive with Auto Perfect Parry.")
-                        : LOC("Auto Perfect Evade. Unavailable right now.")))
+                        ? LOC("Pressing dodge/roll makes every incoming attack a Perfect Evade: zero damage. Exclusive with Easy Parry.")
+                        : LOC("Easy Evade. Unavailable right now.")))
         {
             if (st.easyEvade) st.easyParry = false; // mutually exclusive
             changed = true;
@@ -3174,7 +3174,7 @@ namespace trinity::gui
         // Toasts outlive the menu (e.g. "Warping to..." after closing it).
         ui::DrawToasts();
 
-        // Auto Perfect Parry/Evade screen feedback (also outlives the menu).
+        // Easy Perfect Parry/Evade screen feedback (also outlives the menu).
         ui::DrawJustFlash();
 
         // A queued dye apply finishes on the game thread; report it wherever

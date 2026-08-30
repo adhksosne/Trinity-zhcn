@@ -49,10 +49,10 @@ namespace trinity
         bool infStamina      = false;
         bool infMountStamina = false;
         bool infSpirit       = false;
-        bool easyParry       = false; // Auto Perfect Parry (mutually exclusive with easyEvade)
-        bool easyEvade       = false; // Auto Perfect Evade (mutually exclusive with easyParry)
+        bool easyParry       = false; // Easy Perfect Parry (mutually exclusive with easyEvade)
+        bool easyEvade       = false; // Easy Perfect Evade (mutually exclusive with easyParry)
 
-        // Screen feedback for an auto perfect parry/evade. Written by the
+        // Screen feedback for an easy perfect parry/evade. Written by the
         // damage hook, drawn by the overlay (decays each frame).
         float justFlash     = 0.0f;   // 0..1 intensity, decays toward 0
         int   justFlashType = 0;      // 0 none, 1 parry (gold), 2 evade (cyan)

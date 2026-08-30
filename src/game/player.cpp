@@ -340,6 +340,30 @@ namespace trinity::game
             return false;
         }
 
+        // Dodge/roll key detection, mirroring the guard check above. The
+        // engine's JustCore window for a perfect dodge is a handful of frames,
+        // so Easy Evade also nulls damage here whenever the player is actually
+        // dodging - pressing dodge always succeeds.
+        static bool IsPlayerDodging()
+        {
+            // Space (jump/roll) and Left/Right Shift (dash/roll) cover the
+            // common keyboard dodge bindings.
+            if ((GetAsyncKeyState(VK_SPACE) & 0x8000) != 0 ||
+                (GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0 ||
+                (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0)
+                return true;
+
+            XINPUT_STATE xs{};
+            if (hooks::ReadPadsCached(xs))
+            {
+                // A / B are jump / roll in the default pad bindings.
+                if ((xs.Gamepad.wButtons & XINPUT_GAMEPAD_A) != 0 ||
+                    (xs.Gamepad.wButtons & XINPUT_GAMEPAD_B) != 0)
+                    return true;
+            }
+            return false;
+        }
+
         static ULONGLONG s_lastResolveMs = 0;
 
         void TickResolveSelf()
@@ -780,10 +804,6 @@ namespace trinity::game
             return delta;
         }
 
-        // Forward decl - defined after the JustCore globals (replays the
-        // engine's last JustCore context so a perfect-timing response fires).
-        static void TryReplayJustCore(bool parry);
-
         int64_t __fastcall hkDamageApply(void* targetOwner, uint16_t statusId,
                                          int64_t time, int64_t delta, uintptr_t sourceCtx,
                                          char a6, char a7, char a8, char a9, char a10,
@@ -812,28 +832,26 @@ namespace trinity::game
                 }
             }
 
-            if (st.easyParry && isPlayerTarget && isEnemyAttacker)
+            if (st.easyParry && isPlayerTarget && isEnemyAttacker && IsPlayerHoldingGuard())
             {
-                // Auto Perfect Parry: no guard required - any incoming enemy
-                // attack is turned into a perfect parry: zero damage, parry
-                // reaction flag (a6 = 2), attacker stagger (a7 = 1), plus the
-                // engine's own perfect-timing response (slow-mo / counter).
+                // Easy Perfect Parry: while holding guard, any incoming enemy
+                // attack is a perfect parry: zero damage, parry reaction flag
+                // (a6 = 2), attacker stagger (a7 = 1).
                 delta = 0;
                 a6 = 2;
                 a7 = 1;
                 st.justFlash = 1.0f;
                 st.justFlashType = 1;
-                TryReplayJustCore(true);
             }
-            else if (st.easyEvade && isPlayerTarget && isEnemyAttacker)
+            else if (st.easyEvade && isPlayerTarget && isEnemyAttacker && IsPlayerDodging())
             {
-                // Auto Perfect Evade: no dodge input required - any incoming
-                // enemy attack is absorbed by a perfect evade: zero damage,
-                // plus the engine's own perfect-timing response.
+                // Easy Perfect Evade: while dodging, any incoming enemy attack
+                // is absorbed by a perfect evade: zero damage. (The engine's
+                // JustCore hook also forces the perfect-dodge judgement, but its
+                // window is a few frames, so we null the damage here too.)
                 delta = 0;
                 st.justFlash = 1.0f;
                 st.justFlashType = 2;
-                TryReplayJustCore(false);
             }
             else if (delta < 0)
             {
@@ -881,33 +899,8 @@ namespace trinity::game
         JustCore_t oJustCore = nullptr;
         void*      g_justCoreTarget = nullptr;
 
-        // The most recent JustCore context the ENGINE produced (its own real
-        // call - player guarding/dodging an attack). Auto Parry/Evade replays
-        // this context through oJustCore on a hit so the engine's perfect-timing
-        // response (slow-mo / counter) actually fires with valid parameters.
-        static __int64       s_justA1 = 0;
-        static float         s_justA2[4] = {};
-        static float         s_justA3 = 0.0f;
-        static bool          s_hasJustCtx = false;
-
         bool __fastcall hkJustCore(__int64 a1, float* a2, float a3, char a4, bool* a5)
         {
-            // Snapshot the engine's real context BEFORE it runs, so a later
-            // auto-parry/evade hit can replay a valid parameter set.
-            if (a1)
-            {
-                s_justA1 = a1;
-                s_justA3 = a3;
-                if (a2)
-                {
-                    s_justA2[0] = a2[0];
-                    s_justA2[1] = a2[1];
-                    s_justA2[2] = a2[2];
-                    s_justA2[3] = a2[3];
-                }
-                s_hasJustCtx = true;
-            }
-
             const bool orig = oJustCore ? oJustCore(a1, a2, a3, a4, a5) : false;
             const State& st = State::Get();
 
@@ -935,25 +928,6 @@ namespace trinity::game
                     PinEntry(g_spiritEntries[i].load(std::memory_order_relaxed));
 
             return orig;
-        }
-
-        // Replays the engine's last real JustCore context through the trampoline
-        // so the perfect-timing response (native slow-mo / counter) actually
-        // fires. Best-effort: a stale or never-seen context is dropped, and the
-        // call is SEH-guarded so a dead parameter can never crash the game.
-        static void TryReplayJustCore(bool parry)
-        {
-            if (!oJustCore || !s_hasJustCtx)
-                return;
-            __try
-            {
-                bool out = false;
-                oJustCore(s_justA1, s_justA2, s_justA3, parry ? 1 : 0, &out);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                // Stale context - drop it and continue.
-            }
         }
     }
 
