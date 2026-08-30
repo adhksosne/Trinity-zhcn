@@ -20,21 +20,7 @@ namespace trinity::game
 
     namespace
     {
-        // Resolved addresses of the fixed-timestep override globals (BSS - zero
-        // in the static image, so found via the override block's RIP operands).
-        // Zero if the signature did not resolve, in which case Game Speed is
-        // inert (Tick no-ops).
-        uintptr_t g_flagAddr  = 0; // byte  byte_606B9CE : 1 forces the fixed step
-        uintptr_t g_valueAddr = 0; // float dword_615A4F0 : forced seconds-per-frame
 
-        // Whether we currently hold the override on. Lets Tick clear the flag
-        // exactly once when the toggle is switched off, restoring the engine's
-        // own real-time delta without fighting the game every frame afterwards.
-        bool g_applied = false;
-
-        // Last timing struct seen by the master frame-update hook (v2.00.00
-        // path); used to restore the engine to 1.0x on unload.
-        uintptr_t g_liveTiming = 0;
 
         // Master field-clock globals (client / server realm), each the base of
         // a 32-byte int32 time struct (day/hour/min/sec). Zero if the signature
@@ -94,45 +80,38 @@ namespace trinity::game
             return v < lo ? lo : (v > hi ? hi : v);
         }
 
-        // --- Game Speed: master frame-update hook (v2.00.00 primary path) ------
-        // See offsets.h kSig_MasterFrameUpdate. The frame-update context (a1)
-        // carries the timing struct pointer at +0x60; that struct holds the
-        // override enable flag byte (+0x50, cleared by the engine after each
-        // apply) and the time-scale float (+0x54, 1.0 = normal). We set them
-        // each frame before calling the original so the simulation runs at
-        // gameSpeedMult; the scale is a direct sim-time multiplier, so the
-        // full 0.10..5.0 slider span works (live-confirmed
-        // on 2.00.00: both slow-mo and true fast-forward). When the toggle
-        // is off we clear the flag and restore 1.0x once per frame; the BSS
-        // path in Tick() is an independent 1.17/1.18 fallback (different memory).
-        using MasterFrameUpdate_t = __int64(__fastcall*)(void* a1);
-        MasterFrameUpdate_t oMasterFrameUpdate = nullptr;
-        void* g_masterFrameTarget = nullptr;
+        // --- Game Speed: native FrameTimerUpdate hook ------------------------
+        // Controls the engine's true time-scale multiplier (see offsets.h
+        // kSig_FrameTimerBody). mode=1 + multiplier=gameSpeedMult each frame.
+        using FrameTimerUpdate_t = void(__fastcall*)(void* appMgr);
+        FrameTimerUpdate_t oFrameTimerUpdate = nullptr;
+        void* g_frameTimerUpdateTarget = nullptr;
+        uintptr_t g_liveTimeStruct = 0;
 
-        __int64 __fastcall hkMasterFrameUpdate(void* a1)
+        void __fastcall hkFrameTimerUpdate(void* appMgr)
         {
-            if (a1)
+            if (appMgr)
             {
-                uintptr_t timing = 0;
-                if (mem::ReadPtr(reinterpret_cast<uintptr_t>(a1) + kOff_MasterFrame_TimingDisp, &timing)
-                    && timing >= kMinPointer)
+                uintptr_t app = reinterpret_cast<uintptr_t>(appMgr);
+                uintptr_t timeStruct = 0;
+                if (mem::ReadPtr(app + 0x60, &timeStruct) && timeStruct >= kMinPointer)
                 {
-                    g_liveTiming = timing;
+                    g_liveTimeStruct = timeStruct;
                     const State& st = State::Get();
                     if (st.gameSpeed)
                     {
-                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 5.0f);
-                        Write8(timing + kOff_Timing_Flag, 1);
-                        Write32(timing + kOff_Timing_Scale, FloatBits(mult));
+                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
+                        Write8(timeStruct + kOff_TimeStruct_Mode, 1); // Mode 1: Scaled Time
+                        Write32(timeStruct + kOff_TimeStruct_Multiplier, FloatBits(mult));
                     }
                     else
                     {
-                        Write8(timing + kOff_Timing_Flag, 0);
-                        Write32(timing + kOff_Timing_Scale, FloatBits(1.0f));
+                        Write8(timeStruct + kOff_TimeStruct_Mode, 0); // Mode 0: Normal 1.0x Real Time
+                        Write32(timeStruct + kOff_TimeStruct_Multiplier, FloatBits(1.0f));
                     }
                 }
             }
-            return oMasterFrameUpdate(a1);
+            oFrameTimerUpdate(appMgr);
         }
 
         bool ReadI32(uintptr_t addr, int* out)
@@ -467,43 +446,48 @@ namespace trinity::game
     {
         bool ok = true;
 
-        const uintptr_t m = mem::FindPattern(kSig_GameSpeed);
-        if (!m)
+        const uintptr_t bodyAddr = mem::FindPattern(kSig_FrameTimerBody);
+        if (bodyAddr)
         {
-            LOG_ERR("world: game-speed signature NOT FOUND - Game Speed disabled.");
-            ok = false;
-        }
-        else
-        {
-            if (mem::CountMatches(kSig_GameSpeed, 2) != 1)
-                LOG_WARN("world: game-speed signature ambiguous; using first match.");
-
-            // Flag: disp32 of `cmp cs:byte_606B9CE, 1` (an imm follows the disp,
-            // so resolve from the explicit disp/next-instr rather than ResolveRipAt).
-            g_flagAddr = mem::ResolveRip(m + kOff_GameSpeed_FlagDisp, m + kOff_GameSpeed_FlagEnd);
-            // Value: `vmovss xmm0, cs:dword_615A4F0` - a standard RIP instr (disp
-            // at its tail), so ResolveRipAt handles it.
-            g_valueAddr = mem::ResolveRipAt(m + kOff_GameSpeed_ValueVmovss, kLen_GameSpeed_Vmovss);
-
-            if (g_flagAddr < kMinPointer || g_valueAddr < kMinPointer)
+            uintptr_t funcEntry = 0;
+            // Scan backwards up to 0x80 bytes for function prologue (48 8B C4)
+            for (uintptr_t p = bodyAddr - 0x10; p >= bodyAddr - 0x80; --p)
             {
-                LOG_ERR("world: game-speed globals resolved out of range - Game Speed disabled.");
-                g_flagAddr = g_valueAddr = 0;
+                const uint8_t* b = reinterpret_cast<const uint8_t*>(p);
+                if (b[0] == 0x48 && b[1] == 0x8B && b[2] == 0xC4)
+                {
+                    funcEntry = p;
+                    break;
+                }
+            }
+
+            if (funcEntry)
+            {
+                g_frameTimerUpdateTarget = reinterpret_cast<void*>(funcEntry);
+                if (MH_CreateHook(g_frameTimerUpdateTarget, reinterpret_cast<void*>(&hkFrameTimerUpdate),
+                                  reinterpret_cast<void**>(&oFrameTimerUpdate)) == MH_OK &&
+                    MH_EnableHook(g_frameTimerUpdateTarget) == MH_OK)
+                {
+                    LOG_OK("world: FrameTimerUpdate hook installed @ 0x%p (true game time scale engine control).", g_frameTimerUpdateTarget);
+                }
+                else
+                {
+                    LOG_ERR("world: Failed to install FrameTimerUpdate hook.");
+                    g_frameTimerUpdateTarget = nullptr;
+                    ok = false;
+                }
+            }
+            else
+            {
+                LOG_ERR("world: FrameTimerUpdate prologue not found from body match.");
                 ok = false;
             }
         }
-
-        // v2.00.00 primary path: the BSS override globals above are dead in
-        // 2.0, so hook the master frame-update function and drive the live
-        // timing struct directly (see offsets.h kSig_MasterFrameUpdate).
-        // Independent of the BSS path - Game Speed works via whichever resolves
-        // on this build (the hook on 2.0, the BSS globals on 1.17/1.18), and
-        // Ready() reflects either. Non-fatal: a drift here leaves Time of Day
-        // untouched.
-        if (!mem::InstallHook("world: master frame update", kSig_MasterFrameUpdate,
-                              "Game Speed timescale unavailable", hkMasterFrameUpdate,
-                              &oMasterFrameUpdate, &g_masterFrameTarget))
+        else
+        {
+            LOG_ERR("world: FrameTimerBody signature not found - Game Speed disabled.");
             ok = false;
+        }
 
         // Time of Day resolves independently - Game Speed still works if this
         // signature drifts, and vice versa. Advance needs the clock globals...
@@ -593,31 +577,6 @@ namespace trinity::game
     {
         const State& st = State::Get();
 
-        // Game Speed - only if its globals resolved; independent of the sun
-        // freeze below, so a Game Speed signature drift never disables Freeze.
-        if ((g_flagAddr && g_valueAddr) && st.gameSpeed)
-        {
-            // Forced frame delta = mult / 60: the engine's own fixed-timestep
-            // reference is the 60-FPS step (1/60 s), so 1.00x reproduces it and
-            // the multiplier scales sim time from there. Clamp both the factor
-            // (to the slider's range) and the resulting delta (defensively, so a
-            // bad value can never feed the sim an absurd timestep).
-            const float mult  = Clamp(st.gameSpeedMult, 0.1f, 5.0f);
-            const float delta = Clamp(mult / kGameSpeed_BaselineFps, 1.0e-5f, 1.0f);
-
-            // Value first, then arm the flag, so the timing update never reads a
-            // stale delta on the frame we switch it on. Re-armed every tick so
-            // it self-heals if the game's capture path clears the flag.
-            Write32(g_valueAddr, FloatBits(delta));
-            Write8(g_flagAddr, 1);
-            g_applied = true;
-        }
-        else if (g_applied)
-        {
-            // Back to the engine's own measured real-time delta.
-            Write8(g_flagAddr, 0);
-            g_applied = false;
-        }
 
         // Freeze Time of Day: the field-time tick hook (hkFieldTimeTick) holds
         // the NUMERIC clock, but the visible SUN rides the render manager's own
@@ -746,22 +705,18 @@ namespace trinity::game
 
     void World::Remove()
     {
-        // Leave the game at normal speed on unload.
-        if (g_applied && g_flagAddr) Write8(g_flagAddr, 0);
-        g_applied  = false;
-        g_flagAddr = g_valueAddr = 0;
-
-        // Restore the engine's timing struct to 1.0x before unhooking the
-        // master frame-update (v2.00.00 path), so unload never leaves a
-        // scaled time behind.
-        if (g_liveTiming >= kMinPointer)
+        // Restore game speed to normal
+        if (g_frameTimerUpdateTarget)
         {
-            Write8(g_liveTiming + kOff_Timing_Flag, 0);
-            Write32(g_liveTiming + kOff_Timing_Scale, FloatBits(1.0f));
+            if (g_liveTimeStruct >= kMinPointer)
+            {
+                Write8(g_liveTimeStruct + kOff_TimeStruct_Mode, 0);
+                Write32(g_liveTimeStruct + kOff_TimeStruct_Multiplier, FloatBits(1.0f));
+            }
+            mem::RemoveHook(&g_frameTimerUpdateTarget);
+            oFrameTimerUpdate = nullptr;
+            g_liveTimeStruct = 0;
         }
-        g_liveTiming = 0;
-        mem::RemoveHook(&g_masterFrameTarget);
-        oMasterFrameUpdate = nullptr;
 
         // Restore the render manager's time-of-day limits if we were holding
         // the sun, then forget the engine global.
@@ -795,11 +750,7 @@ namespace trinity::game
 
     bool World::Ready()
     {
-        // Game Speed is available if EITHER the v2.00.00 master frame-update
-        // hook installed OR the 1.17/1.18 BSS override globals resolved - the
-        // live build picks one, and the menu toggle reflects it.
-        return g_masterFrameTarget != nullptr
-            || (g_flagAddr >= kMinPointer && g_valueAddr >= kMinPointer);
+        return g_frameTimerUpdateTarget != nullptr;
     }
 
     bool World::TimeOfDayReady()
