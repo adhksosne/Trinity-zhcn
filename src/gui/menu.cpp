@@ -298,7 +298,9 @@ namespace trinity::gui
         const bool isMount = (game::Dye::GetTargetMode() == 1);
         if (isMount)
         {
-            static const char* const kMountNames[] = { LOC("Active Mount"), LOC("Mount 2"), LOC("Mount 3"), LOC("Mount 4") };
+            // Not static: LOC() pointers dangle after a language switch rebuilds
+            // the translations map.
+            const char* const kMountNames[] = { LOC("Active Mount"), LOC("Mount 2"), LOC("Mount 3"), LOC("Mount 4") };
             int mountIdx = game::Dye::GetActiveMount();
             if (ui::Combo(LOC("Target Mount"), &mountIdx, kMountNames, 4, LOC("Select active horse or mount to dye.")))
             {
@@ -307,7 +309,9 @@ namespace trinity::gui
         }
         else
         {
-            static const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
+            // Not static: LOC() pointers dangle after a language switch rebuilds
+            // the translations map.
+            const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
             int dyeChar = game::Dye::GetActiveCharacter();
             if (dyeChar < 0 || dyeChar > 2) dyeChar = 0; // same clamp as equipment: auto-detect can fail (-1)
             if (ui::Combo(LOC("Character"), &dyeChar, kCharNames, 3, LOC("Select which character's armor to dye.")))
@@ -438,23 +442,20 @@ namespace trinity::gui
         const int comboCount = 1 + maxZones;
         if (s_dyeChan >= comboCount) s_dyeChan = 0;
 
-        static const char* s_famItems[game::kDyeFamilyCount];
-        static bool s_famInit = false;
-        if (!s_famInit)
+        // Rebuilt each frame: LOC() returns pointers into the translations map,
+        // which a language switch rebuilds (a static cache would dangle).
+        const char* famItems[game::kDyeFamilyCount];
+        for (int i = 0; i < game::kDyeFamilyCount; ++i)
         {
-            for (int i = 0; i < game::kDyeFamilyCount; ++i)
-            {
-                // Localize the display name (all 10 are plain colour words) so
-                // the family picker shows Chinese; the engine colour-group key
-                // (game::kDyeFamilies[i].stringKey) is untouched for the record.
-                s_famItems[i] = LOC(game::kDyeFamilies[i].name);
-            }
-            s_famInit = true;
+            // Localize the display name (all 10 are plain colour words) so
+            // the family picker shows Chinese; the engine colour-group key
+            // (game::kDyeFamilies[i].stringKey) is untouched for the record.
+            famItems[i] = LOC(game::kDyeFamilies[i].name);
         }
 
         ui::Combo(LOC("Dye Zone"), &s_dyeChan, kZoneItems, comboCount,
                   LOC("Which zone of the item to color (Supports Zones 1-12)."));
-        ui::Combo(LOC("Color Family"), &s_dyeFamily, s_famItems, game::kDyeFamilyCount,
+        ui::Combo(LOC("Color Family"), &s_dyeFamily, famItems, game::kDyeFamilyCount,
                   LOC("Pick a color family to browse its shades below."));
 
         const game::DyeFamily& fam = game::kDyeFamilies[s_dyeFamily];
@@ -607,7 +608,9 @@ namespace trinity::gui
     {
         ui::Begin();
 
-        static const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
+        // Not static: LOC() returns pointers into the translations map, which is
+        // rebuilt on a language switch - a static array would dangle.
+        const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
         int eqChar = game::Equipment::GetActiveCharacter();
         if (eqChar < 0 || eqChar > 2) eqChar = 0; // auto-detect can fail (-1): clamp to Kliff so the combo preview never reads out of bounds
         if (ui::Combo(LOC("Character"), &eqChar, kCharNames, 3, LOC("Select which character's equipment to view and edit.")))
@@ -3102,9 +3105,11 @@ namespace trinity::gui
                 loc::SetLanguage(curLang);
                 st.languageIndex = curLang;
                 snprintf(st.languageCode, sizeof(st.languageCode), "%s", loc::GetLanguageCode(curLang));
-                // Language switch changes the glyph set: rebuild the font atlas
-                // next Present or the new language's characters render as '?'.
-                ui::g_needFontRebuild = true;
+                // NOTE: no font rebuild here. The atlas always includes the
+                // embedded zh table (see InitStyle), and English is ASCII, so
+                // en<->zh switches need no new glyphs. Rebuilding mid-game re-
+                // scanned the huge in-world loc blob and could push the atlas
+                // past the 16384px D3D12 limit -> device removed.
                 save = true;
             }
         }

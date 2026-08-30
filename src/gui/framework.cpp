@@ -17,6 +17,8 @@
 #include "../core/state.h"
 #include "../core/version.h"
 #include "../core/localization.h"
+#include "../core/logger.h"
+#include "../core/languages_embedded.h"
 #include "../game/inventory.h"
 #include "../game/dye.h"
 #include "../hooks/xinput_hook.h"
@@ -324,17 +326,23 @@ namespace trinity::ui
         const bool hasMeiryoBd = (GetFileAttributesA(meiryobdPath) != INVALID_FILE_ATTRIBUTES);
 
         // Build a lean, high-speed Chinese glyph range (Common 2500 + all Trinity
-        // menu characters). Rebuilt on every InitStyle() so a runtime language
-        // switch pulls in the current translation's glyphs; the previous static
-        // cache froze the ranges to the first language loaded, which showed '?'
-        // for every Chinese character after switching to zh.
-        ImVector<ImWchar> zhRanges;
-        if (hasYahei)
+        // menu characters). Built ONCE: the embedded zh table is ALWAYS included
+        // (plus the current language's text), so the atlas covers zh no matter
+        // which language is active at build time - a runtime language switch
+        // therefore never needs an atlas rebuild, and rebuilds (menu scale) keep
+        // reusing this bounded range instead of re-scanning the game's loc blob
+        // in-world, which could push the texture past the 16384px D3D12 limit
+        // and remove the device.
+        static ImVector<ImWchar> s_zhRanges;
+        if (s_zhRanges.empty() && hasYahei)
         {
             ImFontGlyphRangesBuilder builder;
             builder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
             // Add all extra Chinese characters used in Trinity UI (including 辑, 镶, 嵌, 渊, 斗, 昼, 耀, etc.)
             builder.AddText("霓炫帧编辑装备精炼深渊符文镶嵌斗气落日耀橙矩阵翡翠赛博青蓝快捷键昼夜时间重置孔位个人仓库营地衣柜推进锁定加快减慢运行速度单手双手武器盾牌远程匕首头盔防具披风手套靴子项链戒指眼镜面具骑乘载具料理药水食材药材杂物书籍配方地图通缉令工具货币记忆钥匙封印文物机关控制库库罐诱饵贸易品未分类搜索输入");
+            // The full embedded zh table (includes [Language] Name=简体中文,
+            // which the parsed translations skip but the combo still shows).
+            builder.AddText(kEmbeddedZh);
             builder.AddText(loc::LoadedTranslationText());
             game::Inventory::LocBlobInfo blob{};
             if (game::Inventory::GetLocBlob(&blob) && blob.data && blob.size)
@@ -359,7 +367,7 @@ namespace trinity::ui
                         builder.AddChar(static_cast<ImWchar>(cp));
                 }
             }
-            builder.BuildRanges(&zhRanges);
+            builder.BuildRanges(&s_zhRanges);
         }
 
         // Build Korean glyph range
@@ -413,9 +421,9 @@ namespace trinity::ui
             cfgMerge.PixelSnapH = true;
 
             // Merge Chinese glyphs into THIS font
-            if (zhPath && !zhRanges.empty())
+            if (zhPath && !s_zhRanges.empty())
             {
-                io.Fonts->AddFontFromFileTTF(zhPath, size, &cfgMerge, zhRanges.Data);
+                io.Fonts->AddFontFromFileTTF(zhPath, size, &cfgMerge, s_zhRanges.Data);
             }
 
             // Merge Korean glyphs into THIS font
@@ -499,6 +507,24 @@ namespace trinity::ui
         if (!g_fontTitle) g_fontTitle = g_fontBold;
 
         io.FontDefault = g_fontBody;
+
+        // Diagnostics: force the atlas build so we can log its size and verify
+        // the CJK pipeline (glyph coverage) - if Chinese ever renders as '?' or
+        // tofu boxes again, this line tells us whether the atlas or the string
+        // data is at fault.
+        io.Fonts->Build();
+        {
+            char hex[49];
+            const char* probeText = loc::Tr("PLAYER");
+            for (int i = 0; i < 16 && probeText[i]; ++i)
+                snprintf(hex + i * 3, 4, "%02X ", (unsigned char)probeText[i]);
+            LOG_OK("fonts: atlas=%dx%d bodyGlyphs=%u zhRanges=%d probe(0x73A9)=%s Tr(PLAYER)=%s",
+                   io.Fonts->TexWidth, io.Fonts->TexHeight,
+                   g_fontBody ? static_cast<unsigned>(g_fontBody->Glyphs.size()) : 0u,
+                   static_cast<int>(s_zhRanges.Size),
+                   (g_fontBody && g_fontBody->FindGlyph(0x73A9)) ? "FOUND" : "MISSING",
+                   hex);
+        }
     }
 
     // --- Controller -----------------------------------------------------------
@@ -1350,7 +1376,9 @@ namespace trinity::ui
                     dl->AddText(g_fontBody, fSz, ImVec2(txtX, txtY), IM_COL32(200, 200, 210, 255), rgbBuf);
                     txtY += fSz + 2.0f * s;
 
-                    static const char* const kMatNames[] = { LOC("Natural"), LOC("Cloth"), LOC("Leather"), LOC("Silk"), LOC("Iron"), LOC("Steel"), LOC("Gold"), LOC("Velvet"), LOC("Brass"), LOC("Silver"), LOC("Enamel") };
+                    // Not static: LOC() pointers dangle after a language switch
+                    // rebuilds the translations map.
+                    const char* const kMatNames[] = { LOC("Natural"), LOC("Cloth"), LOC("Leather"), LOC("Silk"), LOC("Iron"), LOC("Steel"), LOC("Gold"), LOC("Velvet"), LOC("Brass"), LOC("Silver"), LOC("Enamel") };
                     int matId = g_selectedTooltip.dyeMaterial;
                     const char* matStr = (matId >= 0 && matId <= 10) ? kMatNames[matId] : LOC("Custom");
                     char matBuf[48];
