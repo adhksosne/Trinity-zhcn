@@ -3099,6 +3099,9 @@ namespace trinity::gui
                 loc::SetLanguage(curLang);
                 st.languageIndex = curLang;
                 snprintf(st.languageCode, sizeof(st.languageCode), "%s", loc::GetLanguageCode(curLang));
+                // Language switch changes the glyph set: rebuild the font atlas
+                // next Present or the new language's characters render as '?'.
+                ui::g_needFontRebuild = true;
                 save = true;
             }
         }

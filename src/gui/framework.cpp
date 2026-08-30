@@ -317,9 +317,13 @@ namespace trinity::ui
         const bool hasMeiryo = (GetFileAttributesA(meiryoPath) != INVALID_FILE_ATTRIBUTES);
         const bool hasMeiryoBd = (GetFileAttributesA(meiryobdPath) != INVALID_FILE_ATTRIBUTES);
 
-        // Build a lean, high-speed Chinese glyph range (Common 2500 + all Trinity menu characters)
-        static ImVector<ImWchar> s_zhRanges;
-        if (s_zhRanges.empty() && hasYahei)
+        // Build a lean, high-speed Chinese glyph range (Common 2500 + all Trinity
+        // menu characters). Rebuilt on every InitStyle() so a runtime language
+        // switch pulls in the current translation's glyphs; the previous static
+        // cache froze the ranges to the first language loaded, which showed '?'
+        // for every Chinese character after switching to zh.
+        ImVector<ImWchar> zhRanges;
+        if (hasYahei)
         {
             ImFontGlyphRangesBuilder builder;
             builder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
@@ -349,7 +353,7 @@ namespace trinity::ui
                         builder.AddChar(static_cast<ImWchar>(cp));
                 }
             }
-            builder.BuildRanges(&s_zhRanges);
+            builder.BuildRanges(&zhRanges);
         }
 
         // Build Korean glyph range
@@ -403,9 +407,9 @@ namespace trinity::ui
             cfgMerge.PixelSnapH = true;
 
             // Merge Chinese glyphs into THIS font
-            if (zhPath && !s_zhRanges.empty())
+            if (zhPath && !zhRanges.empty())
             {
-                io.Fonts->AddFontFromFileTTF(zhPath, size, &cfgMerge, s_zhRanges.Data);
+                io.Fonts->AddFontFromFileTTF(zhPath, size, &cfgMerge, zhRanges.Data);
             }
 
             // Merge Korean glyphs into THIS font
