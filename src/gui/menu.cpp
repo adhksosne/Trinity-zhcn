@@ -266,12 +266,15 @@ namespace trinity::gui
     {
         uint32_t zoneColors[12] = {};
         bool zoneDyed[12] = {};
+        // Single pass reads all zones; per-zone GetChannel re-ran the heavy
+        // component lookup for off-screen companions (Damiane/Oongka) each frame.
+        game::Dye::Channel all[game::kDye_MaxChannels] = {};
+        const uint32_t mask = game::Dye::ReadChannels(curSlot.tag, all);
         for (int z = 0; z < 12; ++z)
         {
-            game::Dye::Channel c{};
-            if (game::Dye::GetChannel(curSlot.tag, z, &c))
+            if (mask & (1u << z))
             {
-                zoneColors[z] = (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | c.b;
+                zoneColors[z] = (uint32_t(all[z].r) << 16) | (uint32_t(all[z].g) << 8) | all[z].b;
                 zoneDyed[z] = true;
             }
         }

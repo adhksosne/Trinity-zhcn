@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "offsets.h" // kDye_MaxChannels
 
 namespace trinity::game
 {
@@ -81,6 +82,13 @@ namespace trinity::game
             uint8_t  repair;     // 0 pristine .. 127 weathered (0xFF legacy)
         };
         static bool GetChannel(uint16_t tag, int channel, Channel* out);
+
+        // Reads every channel for `tag` in one pass (one component resolve, one
+        // entry lookup, one records read). The tooltips read all 12 zones, and
+        // calling GetChannel per zone re-ran the expensive per-character component
+        // lookup (esp. off-screen companions) 12x per frame. Returns a bitmask of
+        // channels that have a record; `out` is zeroed first.
+        static uint32_t ReadChannels(uint16_t tag, Channel out[kDye_MaxChannels]);
 
         // --- Apply / clear (queued to the game thread) -----------------------
         // `channel` 0..11, or -1 for all 12 channels at once. Calls into

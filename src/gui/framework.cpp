@@ -202,13 +202,19 @@ namespace trinity::ui
         snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s", LOC(si.slotName));
 
         g_selectedTooltip.dyeTotalZones = (si.maxZones > 12) ? 12 : ((si.maxZones < 1) ? 1 : si.maxZones);
+
+        // One pass reads all 12 zones; calling GetChannel per zone re-ran the
+        // expensive per-character component lookup (esp. off-screen companions
+        // Damiane/Oongka) 13x per hovered row, which made the list crawl.
+        game::Dye::Channel all[game::kDye_MaxChannels] = {};
+        const uint32_t mask = game::Dye::ReadChannels(si.tag, all);
+
         int firstDyed = -1;
         for (int z = 0; z < 12; ++z)
         {
-            game::Dye::Channel c{};
-            if (game::Dye::GetChannel(si.tag, z, &c))
+            if (mask & (1u << z))
             {
-                g_selectedTooltip.dyeZoneRGB[z] = (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | c.b;
+                g_selectedTooltip.dyeZoneRGB[z] = (uint32_t(all[z].r) << 16) | (uint32_t(all[z].g) << 8) | all[z].b;
                 g_selectedTooltip.dyeZoneDyed[z] = true;
                 if (firstDyed < 0) firstDyed = z;
             }
@@ -217,9 +223,9 @@ namespace trinity::ui
         // first dyed zone (or zone 1 when nothing is dyed yet), so the list
         // tooltip shows the real colour / material, not a blank black card.
         const int act = (firstDyed >= 0) ? firstDyed : 0;
-        game::Dye::Channel ac{};
-        if (game::Dye::GetChannel(si.tag, act, &ac))
+        if (mask & (1u << act))
         {
+            const game::Dye::Channel& ac = all[act];
             g_selectedTooltip.dyeActiveRGB = (uint32_t(ac.r) << 16) | (uint32_t(ac.g) << 8) | ac.b;
             g_selectedTooltip.dyeActiveZone = act + 1;
             g_selectedTooltip.dyeMaterial = (ac.materialId <= 10) ? ac.materialId : 0;

@@ -2109,10 +2109,10 @@ namespace trinity::game
         return true;
     }
 
-    bool Dye::GetChannel(uint16_t tag, int channel, Channel* out)
+    uint32_t Dye::ReadChannels(uint16_t tag, Channel out[kDye_MaxChannels])
     {
-        if (!out) return false;
-        if (channel < 0 || channel >= static_cast<int>(kDye_MaxChannels)) return false;
+        if (!out) return 0;
+        memset(out, 0, sizeof(Channel) * kDye_MaxChannels);
 
         uintptr_t entry = 0;
         if (s_targetMode == 2)
@@ -2131,17 +2131,31 @@ namespace trinity::game
             const uintptr_t comp = ClientComp();
             if (comp) entry = FindEntryByTag(comp, tag);
         }
-        if (!entry) return false;
+        if (!entry) return 0;
 
         uint8_t recs[kDye_MaxChannels][16];
         const uint32_t mask = ReadRecords(entry, recs);
-        if (!(mask & (1u << channel))) return false;
+        for (int ch = 0; ch < static_cast<int>(kDye_MaxChannels); ++ch)
+        {
+            if (!(mask & (1u << ch))) continue;
+            const uint8_t* r = recs[ch];
+            memcpy(&out[ch].groupKey, r + 0, 4);
+            memcpy(&out[ch].materialId, r + 4, 2);
+            out[ch].r = r[7]; out[ch].g = r[8]; out[ch].b = r[9];
+            out[ch].repair = r[11];
+        }
+        return mask;
+    }
 
-        const uint8_t* r = recs[channel];
-        memcpy(&out->groupKey, r + 0, 4);
-        memcpy(&out->materialId, r + 4, 2);
-        out->r = r[7]; out->g = r[8]; out->b = r[9];
-        out->repair = r[11];
+    bool Dye::GetChannel(uint16_t tag, int channel, Channel* out)
+    {
+        if (!out) return false;
+        if (channel < 0 || channel >= static_cast<int>(kDye_MaxChannels)) return false;
+
+        Channel all[kDye_MaxChannels];
+        const uint32_t mask = ReadChannels(tag, all);
+        if (!(mask & (1u << channel))) return false;
+        *out = all[channel];
         return true;
     }
 
