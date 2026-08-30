@@ -2029,39 +2029,4 @@ namespace trinity::ui
             y -= (h + 8.0f * s);
         }
     }
-
-    void DrawJustFlash()
-    {
-        trinity::State& st = trinity::State::Get();
-        if (st.justFlash <= 0.01f)
-            return;
-
-        ImDrawList*    dl  = ImGui::GetForegroundDrawList();
-        const ImGuiIO& io  = ImGui::GetIO();
-        const float    a   = st.justFlash;
-
-        // Full-screen tint: gold for a perfect parry, cyan for a perfect evade.
-        const ImU32 tint = (st.justFlashType == 1)
-                               ? IM_COL32(255, 200, 96, static_cast<int>(a * 140.0f))
-                               : IM_COL32(96, 180, 255, static_cast<int>(a * 140.0f));
-        dl->AddRectFilled(ImVec2(0, 0), io.DisplaySize, tint);
-
-        // Centered label while the flash is strong.
-        if (a > 0.55f && g_fontBold)
-        {
-            const char* label = (st.justFlashType == 1) ? LOC("PERFECT PARRY") : LOC("PERFECT EVADE");
-            const float fz    = g_fontBold->FontSize * 1.05f;
-            const ImVec2 ts   = g_fontBold->CalcTextSizeA(fz, FLT_MAX, 0.0f, label);
-            dl->AddText(g_fontBold, fz,
-                        ImVec2((io.DisplaySize.x - ts.x) * 0.5f, io.DisplaySize.y * 0.38f),
-                        IM_COL32(255, 255, 255, static_cast<int>(a * 255.0f)), label);
-        }
-
-        st.justFlash *= 0.86f;
-        if (st.justFlash < 0.02f)
-        {
-            st.justFlash = 0.0f;
-            st.justFlashType = 0;
-        }
-    }
 }

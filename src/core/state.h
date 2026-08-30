@@ -51,11 +51,6 @@ namespace trinity
         bool infSpirit       = false;
         bool easyParry       = false; // Easy Perfect Parry (guard -> perfect parry)
         bool easyEvade       = false; // Easy Perfect Evade (dodge -> perfect evade)
-
-        // Screen feedback for an easy perfect parry/evade. Written by the
-        // damage hook, drawn by the overlay (decays each frame).
-        float justFlash     = 0.0f;   // 0..1 intensity, decays toward 0
-        int   justFlashType = 0;      // 0 none, 1 parry (gold), 2 evade (cyan)
         bool noBounty        = false;
 
         // Battle-damage multipliers (player.cpp). Applied to the signed HP

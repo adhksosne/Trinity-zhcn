@@ -809,7 +809,7 @@ namespace trinity::game
                                          char a6, char a7, char a8, char a9, char a10,
                                          void* out)
         {
-            State& st = State::Get();
+            const State& st = State::Get();
             const uintptr_t owner = reinterpret_cast<uintptr_t>(targetOwner);
             const bool isPlayerTarget = IsPlayerEntity(owner);
             const bool isMountTarget  = IsMountEntity(owner);
@@ -840,8 +840,6 @@ namespace trinity::game
                 delta = 0;
                 a6 = 2;
                 a7 = 1;
-                st.justFlash = 1.0f;
-                st.justFlashType = 1;
             }
             else if (st.easyEvade && isPlayerTarget && isEnemyAttacker && IsPlayerDodging())
             {
@@ -850,8 +848,6 @@ namespace trinity::game
                 // JustCore hook also forces the perfect-dodge judgement, but its
                 // window is a few frames, so we null the damage here too.)
                 delta = 0;
-                st.justFlash = 1.0f;
-                st.justFlashType = 2;
             }
             else if (delta < 0)
             {
