@@ -87,6 +87,11 @@ namespace trinity::ui
     void DrawToasts();
     bool ToastsActive();
 
+    // Auto Perfect Parry/Evade screen feedback: a full-screen tint (gold for
+    // parry, cyan for evade) plus a centered label, decaying each frame.
+    // Call every frame alongside DrawToasts().
+    void DrawJustFlash();
+
     // Side-panel tooltip helpers
     void SetTooltipPreview(const char* name, const char* icon, const char* subtitle = nullptr,
                            int refineLevel = -1, int durability = -1,

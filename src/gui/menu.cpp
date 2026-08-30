@@ -3174,6 +3174,9 @@ namespace trinity::gui
         // Toasts outlive the menu (e.g. "Warping to..." after closing it).
         ui::DrawToasts();
 
+        // Auto Perfect Parry/Evade screen feedback (also outlives the menu).
+        ui::DrawJustFlash();
+
         // A queued dye apply finishes on the game thread; report it wherever
         // the user is (the "Applying dye..." toast keeps this path drawing
         // even if they closed the menu right after).
