@@ -808,12 +808,20 @@ namespace trinity::game
                 }
             }
 
-            if (st.easyParry && isPlayerTarget && isEnemyAttacker && IsPlayerHoldingGuard())
+            if (st.easyParry && isPlayerTarget && isEnemyAttacker)
             {
-                // Force Perfect Deflect / Parry: 0 damage, parry reaction flag (a6 = 2), attacker stagger (a7 = 1)
+                // Auto Perfect Parry: no guard required - any incoming enemy
+                // attack is turned into a perfect parry: zero damage, parry
+                // reaction flag (a6 = 2), attacker stagger (a7 = 1).
                 delta = 0;
                 a6 = 2;
                 a7 = 1;
+            }
+            else if (st.easyEvade && isPlayerTarget && isEnemyAttacker)
+            {
+                // Auto Perfect Evade: no dodge input required - any incoming
+                // enemy attack is absorbed by a perfect evade: zero damage.
+                delta = 0;
             }
             else if (delta < 0)
             {

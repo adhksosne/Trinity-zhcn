@@ -1,4 +1,4 @@
-﻿// roles: data
+// roles: data
 #pragma once
 // Auto-generated from languages/Trinity_zh.ini (embedded so the mod ships
 // Chinese without requiring an external Languages\Trinity_zh.ini). Keep the
@@ -62,13 +62,13 @@ Mounts, horses, and dragons never run out of stamina while galloping, sprinting,
 Mounts and horses never run out of stamina while galloping or sprinting.=坐骑和马匹在疾驰或冲刺时永远不会耗尽耐力。
 Infinite Spirit=无限勇气
 Keeps your spirit full.=保持勇气全满。
-Easy Parry=简易招架
+Auto Perfect Parry=自动完美招架
 Automatically parries incoming attacks and negates incoming strike damage.=自动格挡敌方攻击并免疫受到的打击伤害。
-Widens the Perfect-Parry timing window - you still must be in guard, just not frame-perfect.=放宽完美招架的判定窗口 - 你仍需处于防御姿态,只是无需完美时机。
-Widens the Perfect-Parry timing window. Unavailable right now.=放宽完美招架的判定窗口。当前不可用。
-Easy Evade=简易闪避
-Widens the Perfect-Dodge timing window - you still must dodge the hit, just not frame-perfect.=放宽完美闪避的判定窗口 - 你仍需躲过攻击,只是无需完美时机。
-Widens the Perfect-Dodge timing window. Unavailable right now.=放宽完美闪避的判定窗口。当前不可用。
+Automatically trigger a Perfect Parry on any incoming enemy attack: take zero damage and stagger the attacker. Exclusive with Auto Perfect Evade.=被敌人攻击时自动触发完美招架：完全免疫伤害并使攻击者硬直。与自动完美闪避互斥。
+Auto Perfect Parry. Unavailable right now.=自动完美招架。当前不可用。
+Auto Perfect Evade=自动完美闪避
+Automatically trigger a Perfect Evade on any incoming enemy attack: take zero damage. Exclusive with Auto Perfect Parry.=被敌人攻击时自动触发完美闪避：完全免疫伤害。与自动完美招架互斥。
+Auto Perfect Evade. Unavailable right now.=自动完美闪避。当前不可用。
 Super Run=超级奔跑
 Move faster than normal.=移动速度比平时更快。
 Super Jump=超级跳跃

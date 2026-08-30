@@ -49,8 +49,8 @@ namespace trinity
         bool infStamina      = false;
         bool infMountStamina = false;
         bool infSpirit       = false;
-        bool easyParry       = false;
-        bool easyEvade       = false;
+        bool easyParry       = false; // Auto Perfect Parry (mutually exclusive with easyEvade)
+        bool easyEvade       = false; // Auto Perfect Evade (mutually exclusive with easyParry)
         bool noBounty        = false;
 
         // Battle-damage multipliers (player.cpp). Applied to the signed HP

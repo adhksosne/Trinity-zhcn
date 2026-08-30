@@ -111,17 +111,22 @@ namespace trinity::gui
         }
         changed |= ui::Toggle(LOC("Infinite Spirit"), &st.infSpirit,
                    LOC("Keeps your spirit / special ability gauge full."));
-        if (ui::Toggle(LOC("Easy Parry"), &st.easyParry,
+        if (ui::Toggle(LOC("Auto Perfect Parry"), &st.easyParry,
                    game::Player::JustCoreReady()
-                        ? LOC("Widens the Perfect-Parry timing window - you still must be in guard, just not frame-perfect.")
-                        : LOC("Widens the Perfect-Parry timing window. Unavailable right now.")))
+                        ? LOC("Automatically trigger a Perfect Parry on any incoming enemy attack: take zero damage and stagger the attacker. Exclusive with Auto Perfect Evade.")
+                        : LOC("Auto Perfect Parry. Unavailable right now.")))
         {
+            if (st.easyParry) st.easyEvade = false; // mutually exclusive
             changed = true;
         }
-        changed |= ui::Toggle(LOC("Easy Evade"), &st.easyEvade,
+        if (ui::Toggle(LOC("Auto Perfect Evade"), &st.easyEvade,
                    game::Player::JustCoreReady()
-                        ? LOC("Widens the Perfect-Dodge timing window - you still must dodge the hit, just not frame-perfect.")
-                        : LOC("Widens the Perfect-Dodge timing window. Unavailable right now."));
+                        ? LOC("Automatically trigger a Perfect Evade on any incoming enemy attack: take zero damage. Exclusive with Auto Perfect Parry.")
+                        : LOC("Auto Perfect Evade. Unavailable right now.")))
+        {
+            if (st.easyEvade) st.easyParry = false; // mutually exclusive
+            changed = true;
+        }
         changed |= ui::FloatOption(LOC("Outgoing Damage"), &st.dmgOutMult, 0.0f, 20.0f, 0.25f, 1.0f, "%.2fx",
                         LOC("Adjusts how much damage you deal to enemies."));
         changed |= ui::FloatOption(LOC("Incoming Damage"), &st.dmgInMult, 0.0f, 10.0f, 0.25f, 1.0f, "%.2fx",
