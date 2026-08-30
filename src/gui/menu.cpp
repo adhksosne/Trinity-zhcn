@@ -111,22 +111,14 @@ namespace trinity::gui
         }
         changed |= ui::Toggle(LOC("Infinite Spirit"), &st.infSpirit,
                    LOC("Keeps your spirit / special ability gauge full."));
-        if (ui::Toggle(LOC("Easy Parry"), &st.easyParry,
+        changed |= ui::Toggle(LOC("Easy Parry"), &st.easyParry,
                    game::Player::JustCoreReady()
-                        ? LOC("Holding guard makes every incoming attack a Perfect Parry: zero damage and the attacker is staggered. Exclusive with Easy Evade.")
-                        : LOC("Easy Parry. Unavailable right now.")))
-        {
-            if (st.easyParry) st.easyEvade = false; // mutually exclusive
-            changed = true;
-        }
-        if (ui::Toggle(LOC("Easy Evade"), &st.easyEvade,
+                        ? LOC("Holding guard makes every incoming attack a Perfect Parry: zero damage and the attacker is staggered.")
+                        : LOC("Easy Parry. Unavailable right now."));
+        changed |= ui::Toggle(LOC("Easy Evade"), &st.easyEvade,
                    game::Player::JustCoreReady()
-                        ? LOC("Pressing dodge/roll makes every incoming attack a Perfect Evade: zero damage. Exclusive with Easy Parry.")
-                        : LOC("Easy Evade. Unavailable right now.")))
-        {
-            if (st.easyEvade) st.easyParry = false; // mutually exclusive
-            changed = true;
-        }
+                        ? LOC("Pressing dodge/roll makes every incoming attack a Perfect Evade: zero damage.")
+                        : LOC("Easy Evade. Unavailable right now."));
         changed |= ui::FloatOption(LOC("Outgoing Damage"), &st.dmgOutMult, 0.0f, 20.0f, 0.25f, 1.0f, "%.2fx",
                         LOC("Adjusts how much damage you deal to enemies."));
         changed |= ui::FloatOption(LOC("Incoming Damage"), &st.dmgInMult, 0.0f, 10.0f, 0.25f, 1.0f, "%.2fx",

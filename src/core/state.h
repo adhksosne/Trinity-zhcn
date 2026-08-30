@@ -49,8 +49,8 @@ namespace trinity
         bool infStamina      = false;
         bool infMountStamina = false;
         bool infSpirit       = false;
-        bool easyParry       = false; // Easy Perfect Parry (mutually exclusive with easyEvade)
-        bool easyEvade       = false; // Easy Perfect Evade (mutually exclusive with easyParry)
+        bool easyParry       = false; // Easy Perfect Parry (guard -> perfect parry)
+        bool easyEvade       = false; // Easy Perfect Evade (dodge -> perfect evade)
 
         // Screen feedback for an easy perfect parry/evade. Written by the
         // damage hook, drawn by the overlay (decays each frame).
