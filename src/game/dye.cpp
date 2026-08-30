@@ -377,6 +377,24 @@ namespace trinity::game
         static int s_targetMode = 0;     // 0 = Player Character, 1 = Mount / Horse
         static int s_activeMountIdx = 0;
 
+        // Caches for the per-selection resolve so the expensive off-screen
+        // identity walk (CharacterAddr -> CharacterAddrs scans up to 64 candidate
+        // containers, each gear-signature checked) runs once per selection
+        // switch instead of every frame. Invalidated by any selection change or
+        // an equipment capture. Auto-detect (-1) is never cached: its target
+        // tracks the live player and already takes the cheap live path.
+        static bool      s_compDirty = true;
+        static int       s_compKeyMode = -1;
+        static int       s_compKeyChar = -1;
+        static int       s_compKeyMount = -1;
+        static uintptr_t s_cachedComp = 0;
+
+        // Equipped-slot snapshot cache: rebuilt once per selection/equipment
+        // change instead of on every SlotCount() call (a dozen NameForTypeId /
+        // IconForTypeId lookups per entry were also happening every frame).
+        static bool s_snapDirty = true;
+        static bool s_snapValid = false;
+
         uintptr_t FindMountComp(int index)
         {
             if (index < 0 || index >= 4) return 0;
@@ -435,9 +453,21 @@ namespace trinity::game
                 return 0;
             }
 
+            // Cache hit: an explicit character selection resolves identically
+            // until the selection or equipment changes, and the resolve below
+            // is the frame-killer for off-screen companions (64-candidate
+            // identity walk). Auto-detect (-1) bypasses the cache - its target
+            // follows the live player and already uses the cheap live path.
+            if (s_activeCharIdx >= 0 && !s_compDirty &&
+                s_compKeyMode == s_targetMode &&
+                s_compKeyChar == s_activeCharIdx &&
+                s_compKeyMount == s_activeMountIdx)
+                return s_cachedComp;
+
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
             const int targetIdx = (s_activeCharIdx < 0) ? liveIdx : s_activeCharIdx;
 
+            uintptr_t result = 0;
             if (targetIdx == liveIdx)
             {
                 // 1. Walk of the VALIDATED live character leads. IsLiveCharacter
@@ -450,57 +480,60 @@ namespace trinity::game
                 //    state, so nothing ever painted).
                 const uintptr_t liveChar = Inventory::ClientCharacterAddr();
                 if (liveChar)
-                {
-                    const uintptr_t comp = CompForCharacter(liveChar);
-                    if (comp) return comp;
-                }
+                    result = CompForCharacter(liveChar);
 
                 // 2. Hook capture - only when it provably belongs to the live
                 //    client character (owner back-reference equality), or when
                 //    no live character is resolvable yet.
-                const uintptr_t hooked = g_comp.load(std::memory_order_acquire);
-                if (CompValid(hooked))
+                if (!result)
                 {
-                    uintptr_t hookedOwner = 0;
-                    const bool ownerKnown =
-                        ReadPtr(hooked + kOff_EquipComp_Owner, &hookedOwner);
-                    if (!liveChar || (ownerKnown && hookedOwner == liveChar))
+                    const uintptr_t hooked = g_comp.load(std::memory_order_acquire);
+                    if (CompValid(hooked))
                     {
-                        const int id = Inventory::IdentifyCharacterFromComp(hooked);
-                        if (id < 0 || id == targetIdx) return hooked;
+                        uintptr_t hookedOwner = 0;
+                        const bool ownerKnown =
+                            ReadPtr(hooked + kOff_EquipComp_Owner, &hookedOwner);
+                        if (!liveChar || (ownerKnown && hookedOwner == liveChar))
+                        {
+                            const int id = Inventory::IdentifyCharacterFromComp(hooked);
+                            if (id < 0 || id == targetIdx) result = hooked;
+                        }
                     }
                 }
 
                 // 3. Tracked party actor of the live index.
-                if (liveIdx > 0 && liveIdx < 3)
+                if (!result && liveIdx > 0 && liveIdx < 3)
                 {
                     const uintptr_t liveActor = Player::GetActor(liveIdx);
                     if (liveActor)
-                    {
-                        const uintptr_t comp = CompForCharacter(liveActor);
-                        if (comp) return comp;
-                    }
+                        result = CompForCharacter(liveActor);
                 }
-                return 0; // never another character's component
+            }
+            else
+            {
+                // Off-screen selection: strict identity lookup only.
+                const uintptr_t actor = Inventory::CharacterAddr(targetIdx);
+                if (actor)
+                    result = CompForCharacter(actor);
+                if (!result && targetIdx > 0 && targetIdx < 3)
+                {
+                    const uintptr_t directActor = Player::GetActor(targetIdx);
+                    if (directActor)
+                        result = CompForCharacter(directActor);
+                }
             }
 
-            // Off-screen selection: strict identity lookup only.
-            const uintptr_t actor = Inventory::CharacterAddr(targetIdx);
-            if (actor)
+            // Store the resolve (a 0 is cached too - it means "not loaded", and
+            // stays valid until the next selection/equipment change re-runs it).
+            if (s_activeCharIdx >= 0)
             {
-                const uintptr_t comp = CompForCharacter(actor);
-                if (comp) return comp;
+                s_cachedComp = result;
+                s_compKeyMode = s_targetMode;
+                s_compKeyChar = s_activeCharIdx;
+                s_compKeyMount = s_activeMountIdx;
+                s_compDirty = false;
             }
-            if (targetIdx > 0 && targetIdx < 3)
-            {
-                const uintptr_t directActor = Player::GetActor(targetIdx);
-                if (directActor)
-                {
-                    const uintptr_t comp = CompForCharacter(directActor);
-                    if (comp) return comp;
-                }
-            }
-            return 0;
+            return result;
         }
 
         // The server-authority component: what a save reload will show. Same
@@ -624,6 +657,9 @@ namespace trinity::game
                     {
                         g_comp.store(comp, std::memory_order_release);
                         s_lastEquipChangeMs.store(GetTickCount64(), std::memory_order_release);
+                        // Gear changed: any cached selection/component/snapshot is stale.
+                        s_compDirty = true;
+                        s_snapDirty = true;
                     }
                 }
             }
@@ -1281,6 +1317,14 @@ namespace trinity::game
 
         void RebuildSnapshot()
         {
+            // Snapshot cache: the menu calls SlotCount() every frame while it is
+            // open, and rebuilding re-runs the (now cached) component resolve
+            // plus a NameForTypeId/IconForTypeId lookup per equipped entry. Only
+            // a selection change or an equipment capture marks it dirty. A failed
+            // rebuild (character not loaded yet) stays !valid and retries.
+            if (s_snapValid && !s_snapDirty)
+                return;
+            s_snapDirty = false;
             g_slotCount = 0;
 
             if (s_targetMode == 1)
@@ -1335,6 +1379,7 @@ namespace trinity::game
                     }
                 }
 
+                s_snapValid = true;
                 return;
             }
 
@@ -1402,6 +1447,7 @@ namespace trinity::game
                         s.dyeable = true;
                     }
                 }
+                s_snapValid = true;
                 return;
             }
 
@@ -1459,6 +1505,7 @@ namespace trinity::game
                 snprintf(s.icon, sizeof(s.icon), "%s", icon);
                 s.dyeable = true;
             }
+            s_snapValid = true;
         }
 
         // --- The game-thread apply -----------------------------------------
@@ -2040,6 +2087,8 @@ namespace trinity::game
         g_dyeRecRemove = nullptr;
         g_dyeApplySlot = nullptr;
         g_comp.store(0, std::memory_order_release);
+        s_compDirty = true;
+        s_snapDirty = true;
     }
 
     bool Dye::Ready()
@@ -2054,6 +2103,8 @@ namespace trinity::game
         if (index < 0) index = 0;
         s_activeCharIdx = index;
         g_slotCount = 0;
+        s_compDirty = true;
+        s_snapDirty = true;
     }
 
     int Dye::GetActiveCharacter()
@@ -2065,6 +2116,8 @@ namespace trinity::game
     {
         s_targetMode = mode;
         g_slotCount = 0;
+        s_compDirty = true;
+        s_snapDirty = true;
     }
 
     int Dye::GetTargetMode()
@@ -2077,6 +2130,8 @@ namespace trinity::game
         if (index < 0) index = 0;
         s_activeMountIdx = index;
         g_slotCount = 0;
+        s_compDirty = true;
+        s_snapDirty = true;
     }
 
     int Dye::GetActiveMount()
