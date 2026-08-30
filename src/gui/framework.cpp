@@ -342,7 +342,9 @@ namespace trinity::ui
             builder.AddText("霓炫帧编辑装备精炼深渊符文镶嵌斗气落日耀橙矩阵翡翠赛博青蓝快捷键昼夜时间重置孔位个人仓库营地衣柜推进锁定加快减慢运行速度单手双手武器盾牌远程匕首头盔防具披风手套靴子项链戒指眼镜面具骑乘载具料理药水食材药材杂物书籍配方地图通缉令工具货币记忆钥匙封印文物机关控制库库罐诱饵贸易品未分类搜索输入");
             // The full embedded zh table (includes [Language] Name=简体中文,
             // which the parsed translations skip but the combo still shows).
-            builder.AddText(kEmbeddedZh);
+            // NOTE: qualified - this TU is namespace trinity::ui, the table
+            // lives in trinity::loc (plain kEmbeddedZh would not resolve).
+            builder.AddText(loc::kEmbeddedZh);
             builder.AddText(loc::LoadedTranslationText());
             game::Inventory::LocBlobInfo blob{};
             if (game::Inventory::GetLocBlob(&blob) && blob.data && blob.size)
