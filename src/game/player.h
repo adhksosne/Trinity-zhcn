@@ -51,6 +51,10 @@ namespace trinity::game
         // True once at least one protagonist's health entry has been observed.
         static bool Ready();
 
+        // True when the Just-Guard / Just-Evade (Perfect Parry / Dodge) hook
+        // installed successfully - gates Easy Parry / Easy Evade in the menu.
+        static bool JustCoreReady();
+
         // Returns the tracked actor address (0 = Primary/Kliff, 1 = Companion 1, 2 = Companion 2).
         static uintptr_t GetActor(int index);
         static int GetTrackedPlayerCount();

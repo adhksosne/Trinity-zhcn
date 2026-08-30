@@ -906,6 +906,25 @@ namespace trinity::game
                          "God Mode / Infinite Stamina / Infinite Spirit disabled",
                          &hkStatCommit, &oStatCommit, &g_commitTarget);
 
+        // Just Core (Just Guard / Just Evade): try primary signature, then Alt.
+        if (!mem::InstallHook("player: just-core", kSig_JustCore, "Easy Parry / Easy Evade disabled",
+                              &hkJustCore, &oJustCore, &g_justCoreTarget))
+        {
+            if (mem::InstallHook("player: just-core (alt)", kSig_JustCore_Alt, "Easy Parry / Easy Evade disabled",
+                                  &hkJustCore, &oJustCore, &g_justCoreTarget))
+            {
+                LOG_OK("player: just-core (alt) hook installed @ %p", g_justCoreTarget);
+            }
+            else
+            {
+                LOG_ERR("player: just-core signature NOT FOUND (tried primary + alt) - Easy Parry / Easy Evade disabled.");
+            }
+        }
+        else
+        {
+            LOG_OK("player: just-core hook installed @ %p", g_justCoreTarget);
+        }
+
         // DamageApply: try primary signature first, then Alt (TU 2.00 recompile shifted the prologue).
         if (!mem::InstallHook("player: damage-apply", kSig_DamageApply, "",
                               &hkDamageApply, &oDamageApply, &g_damageHookTarget))
@@ -996,6 +1015,11 @@ namespace trinity::game
     {
         return g_hpEntries[0].load(std::memory_order_relaxed) >= kMinPointer &&
                g_actors[0].load(std::memory_order_relaxed) >= kMinPointer;
+    }
+
+    bool Player::JustCoreReady()
+    {
+        return g_justCoreTarget != nullptr;
     }
 
     uintptr_t Player::GetActor(int index)

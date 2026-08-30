@@ -111,6 +111,17 @@ namespace trinity::gui
         }
         changed |= ui::Toggle(LOC("Infinite Spirit"), &st.infSpirit,
                    LOC("Keeps your spirit / special ability gauge full."));
+        if (ui::Toggle(LOC("Easy Parry"), &st.easyParry,
+                   game::Player::JustCoreReady()
+                        ? LOC("Widens the Perfect-Parry timing window - you still must be in guard, just not frame-perfect.")
+                        : LOC("Widens the Perfect-Parry timing window. Unavailable right now.")))
+        {
+            changed = true;
+        }
+        changed |= ui::Toggle(LOC("Easy Evade"), &st.easyEvade,
+                   game::Player::JustCoreReady()
+                        ? LOC("Widens the Perfect-Dodge timing window - you still must dodge the hit, just not frame-perfect.")
+                        : LOC("Widens the Perfect-Dodge timing window. Unavailable right now."));
         changed |= ui::FloatOption(LOC("Outgoing Damage"), &st.dmgOutMult, 0.0f, 20.0f, 0.25f, 1.0f, "%.2fx",
                         LOC("Adjusts how much damage you deal to enemies."));
         changed |= ui::FloatOption(LOC("Incoming Damage"), &st.dmgInMult, 0.0f, 10.0f, 0.25f, 1.0f, "%.2fx",
