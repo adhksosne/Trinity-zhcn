@@ -1,4 +1,4 @@
-#include "localization.h"
+﻿#include "localization.h"
 
 #include <Windows.h>
 #include <cstdio>
@@ -230,10 +230,14 @@ namespace trinity::loc
         RefreshLanguages();
     }
 
-    void RefreshLanguages()
+    // Seeds the always-present built-in language pair (English + embedded
+    // Simplified Chinese). Called by RefreshLanguages() and, defensively, by
+    // GetLanguageCount(), so the menu Language selector can never disappear:
+    // langCount is guaranteed to be >= 2 even if this is queried before Init().
+    void SeedBuiltinLanguages()
     {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        s_languages.clear();
+        if (!s_languages.empty())
+            return;
 
         // 0: Always Built-in English
         LanguageInfo en;
@@ -250,6 +254,14 @@ namespace trinity::loc
         zh.code = "zh";
         zh.filePath = "";
         zh.embedded = kEmbeddedZh;
+        s_languages.push_back(zh);
+    }
+
+    void RefreshLanguages()
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_languages.clear();
+        SeedBuiltinLanguages();
 
         const std::string dir = GetModuleDir();
         if (!dir.empty())
@@ -334,6 +346,10 @@ namespace trinity::loc
 
     int GetLanguageCount()
     {
+        // Defensive: the built-in en+zh pair is always present, but if this is
+        // ever queried before Init() (or after a list clear) reseed so the
+        // menu Language selector can never disappear.
+        SeedBuiltinLanguages();
         return static_cast<int>(s_languages.size());
     }
 
