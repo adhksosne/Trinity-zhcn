@@ -48,16 +48,7 @@ namespace trinity::gui
         ImDrawList* dl = ImGui::GetForegroundDrawList();
 
         char buf[64];
-        // While Free Flight is on, light "FLY" whenever a direction is actively
-        // driving your height (a fly key/button held while airborne), so it's
-        // obvious when the controls have taken over. Harmless otherwise - FPS.
-        if (State::Get().freeFlight)
-        {
-            const bool fly = game::Teleport::GetFlightEngaged();
-            snprintf(buf, sizeof(buf), "%.0f FPS%s", io.Framerate, fly ? "  FLY" : "");
-        }
-        else
-            snprintf(buf, sizeof(buf), "%.0f FPS", io.Framerate);
+        snprintf(buf, sizeof(buf), "%.0f FPS", io.Framerate);
 
         const float  sz  = ImGui::GetFontSize();
         const ImVec2 ts  = ImGui::GetFont()->CalcTextSizeA(sz, 3.402823466e+38f, 0.0f, buf);
