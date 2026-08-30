@@ -9,7 +9,8 @@ namespace trinity::loc
     {
         std::string name;     // Display name, e.g. "English", "简体中文", "한국어"
         std::string code;     // Language code, e.g. "en", "zh", "ko"
-        std::string filePath; // Full path to the .ini file (empty for built-in English)
+        std::string filePath; // Full path to the .ini file (empty for built-in / embedded)
+        std::string embedded; // Inline translation text when the language ships inside the DLL
     };
 
     // Initializes and scans available language files (Trinity_*.ini) beside Trinity.asi
