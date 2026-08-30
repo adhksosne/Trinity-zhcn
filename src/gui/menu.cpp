@@ -1095,7 +1095,7 @@ namespace trinity::gui
 
         const bool ready = game::World::Ready();
         bool changed = false;
-        changed |= ui::ToggleFloat(LOC("Game Speed"), &st.gameSpeed, &st.gameSpeedMult, 0.1f, 5.0f, 0.05f, 1.0f, "%.2fx",
+        changed |= ui::ToggleFloat(LOC("Game Speed"), &st.gameSpeed, &st.gameSpeedMult, 0.1f, 10.0f, 0.05f, 1.0f, "%.2fx",
                    ready
                        ? LOC("Speeds up or slows down the game.")
                        : LOC("Speeds up or slows down the game. Unavailable right now."));

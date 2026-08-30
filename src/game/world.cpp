@@ -32,6 +32,10 @@ namespace trinity::game
         // own real-time delta without fighting the game every frame afterwards.
         bool g_applied = false;
 
+        // Last timing struct seen by the master frame-update hook (v2.00.00
+        // path); used to restore the engine to 1.0x on unload.
+        uintptr_t g_liveTiming = 0;
+
         // Master field-clock globals (client / server realm), each the base of
         // a 32-byte int32 time struct (day/hour/min/sec). Zero if the signature
         // did not resolve, in which case Advance Time is inert.
@@ -96,8 +100,8 @@ namespace trinity::game
         // override enable flag byte (+0x50, cleared by the engine after each
         // apply) and the time-scale float (+0x54, 1.0 = normal). We set them
         // each frame before calling the original so the simulation runs at
-        // gameSpeedMult; the scale is a direct sim-time multiplier with NO
-        // upper clamp, so the full 0.10..5.0 slider span works (live-confirmed
+        // gameSpeedMult; the scale is a direct sim-time multiplier, so the
+        // full 0.10..10.0 slider span works (live-confirmed
         // on 2.00.00: both slow-mo and true fast-forward). When the toggle
         // is off we clear the flag and restore 1.0x once per frame; the BSS
         // path in Tick() is an independent 1.17/1.18 fallback (different memory).
@@ -113,10 +117,11 @@ namespace trinity::game
                 if (mem::ReadPtr(reinterpret_cast<uintptr_t>(a1) + kOff_MasterFrame_TimingDisp, &timing)
                     && timing >= kMinPointer)
                 {
+                    g_liveTiming = timing;
                     const State& st = State::Get();
                     if (st.gameSpeed)
                     {
-                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 5.0f);
+                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
                         Write8(timing + kOff_Timing_Flag, 1);
                         Write32(timing + kOff_Timing_Scale, FloatBits(mult));
                     }
@@ -597,7 +602,7 @@ namespace trinity::game
             // the multiplier scales sim time from there. Clamp both the factor
             // (to the slider's range) and the resulting delta (defensively, so a
             // bad value can never feed the sim an absurd timestep).
-            const float mult  = Clamp(st.gameSpeedMult, 0.1f, 5.0f);
+            const float mult  = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
             const float delta = Clamp(mult / kGameSpeed_BaselineFps, 1.0e-5f, 1.0f);
 
             // Value first, then arm the flag, so the timing update never reads a
@@ -746,9 +751,15 @@ namespace trinity::game
         g_applied  = false;
         g_flagAddr = g_valueAddr = 0;
 
-        // Unhook the master frame-update (v2.00.00 path). The engine's override
-        // flag self-clears after each apply, so once the detour is gone the sim
-        // resumes its own real-time timing with no stale flag left behind.
+        // Restore the engine's timing struct to 1.0x before unhooking the
+        // master frame-update (v2.00.00 path), so unload never leaves a
+        // scaled time behind.
+        if (g_liveTiming >= kMinPointer)
+        {
+            Write8(g_liveTiming + kOff_Timing_Flag, 0);
+            Write32(g_liveTiming + kOff_Timing_Scale, FloatBits(1.0f));
+        }
+        g_liveTiming = 0;
         mem::RemoveHook(&g_masterFrameTarget);
         oMasterFrameUpdate = nullptr;
 
