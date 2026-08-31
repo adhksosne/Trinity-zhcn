@@ -119,6 +119,14 @@ namespace trinity::gui
                    game::Player::JustCoreReady()
                         ? LOC("Pressing dodge/roll makes every incoming attack a Perfect Evade: zero damage.")
                         : LOC("Easy Evade. Unavailable right now."));
+        if (ui::Toggle(LOC("No Bounty"), &st.noBounty,
+                       LOC("Crimes stop adding to your bounty or alerting faction guards (session-only, safe for save files).")))
+        {
+            if (game::Inventory::SetNoBounty(st.noBounty) || !st.noBounty)
+                changed = true;
+            else
+                st.noBounty = false; // player not loaded into the world yet - roll back
+        }
         changed |= ui::FloatOption(LOC("Outgoing Damage"), &st.dmgOutMult, 0.0f, 20.0f, 0.25f, 1.0f, "%.2fx",
                         LOC("Adjusts how much damage you deal to enemies."));
         changed |= ui::FloatOption(LOC("Incoming Damage"), &st.dmgInMult, 0.0f, 10.0f, 0.25f, 1.0f, "%.2fx",

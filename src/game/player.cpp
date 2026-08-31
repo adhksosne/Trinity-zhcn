@@ -343,14 +343,15 @@ namespace trinity::game
         // Dodge/roll key detection, mirroring the guard check above. The
         // engine's JustCore window for a perfect dodge is a handful of frames,
         // so Easy Evade also nulls damage here whenever the player is actually
-        // dodging - pressing dodge always succeeds.
-        static bool IsPlayerDodging()
+        // dodging - pressing dodge always succeeds. (Upstream v1.3.2 keys.)
+        static bool IsPlayerHoldingEvade()
         {
-            // Space (jump/roll) and Left/Right Shift (dash/roll) cover the
-            // common keyboard dodge bindings.
             if ((GetAsyncKeyState(VK_SPACE) & 0x8000) != 0 ||
                 (GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0 ||
-                (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0)
+                (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0 ||
+                (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 ||
+                (GetAsyncKeyState('C') & 0x8000) != 0 ||
+                (GetAsyncKeyState(VK_MENU) & 0x8000) != 0) // Alt
                 return true;
 
             XINPUT_STATE xs{};
@@ -841,7 +842,7 @@ namespace trinity::game
                 a6 = 2;
                 a7 = 1;
             }
-            else if (st.easyEvade && isPlayerTarget && isEnemyAttacker && IsPlayerDodging())
+            else if (st.easyEvade && isPlayerTarget && isEnemyAttacker && IsPlayerHoldingEvade())
             {
                 // Easy Perfect Evade: while dodging, any incoming enemy attack
                 // is absorbed by a perfect evade: zero damage. (The engine's
@@ -905,7 +906,10 @@ namespace trinity::game
             const bool isGuard = (a4 != 0);
             const bool isEvade = (a4 == 0);
 
-            if ((isGuard && st.easyParry) || (isEvade && st.easyEvade))
+            // Only succeed while the player is actually guarding / dodging, so
+            // the easy versions never fire on passive actions (upstream v1.3.2).
+            if ((isGuard && st.easyParry && IsPlayerHoldingGuard()) ||
+                (isEvade && st.easyEvade && IsPlayerHoldingEvade()))
             {
                 if (a5) *a5 = true;
                 return true;
@@ -922,6 +926,39 @@ namespace trinity::game
             if (st.infSpirit)
                 for (int i = 0; i < kMaxStatEntries; ++i)
                     PinEntry(g_spiritEntries[i].load(std::memory_order_relaxed));
+
+            return orig;
+        }
+
+        // --- Combat Timing & Hitbox Evaluator: Perfect Parry & Perfect Dodge ---
+        // The engine's hitbox evaluator (upstream v1.3.2, sub_1407219c0) that
+        // decides whether an incoming attack lands inside a perfect window. Same
+        // easy-parry/evade policy as hkJustCore, gated on guard/dodge input.
+        using CombatTimingEval_t = bool(__fastcall*)(void* combatComp, void* hitData,
+                                                     float distance, uint8_t isGuardMode, void* outResult);
+        CombatTimingEval_t oCombatTimingEval = nullptr;
+        void*              g_combatTimingTarget = nullptr;
+
+        bool __fastcall hkCombatTimingEval(void* combatComp, void* hitData,
+                                           float distance, uint8_t isGuardMode, void* outResult)
+        {
+            const bool orig = oCombatTimingEval ? oCombatTimingEval(combatComp, hitData, distance, isGuardMode, outResult) : false;
+            const State& st = State::Get();
+
+            // isGuardMode != 0: Perfect Parry (Just Guard) - only while holding guard
+            if (isGuardMode && st.easyParry && IsPlayerHoldingGuard())
+            {
+                if (outResult && reinterpret_cast<uintptr_t>(outResult) >= kMinPointer)
+                    *reinterpret_cast<uint8_t*>(outResult) = 1;
+                return true;
+            }
+            // isGuardMode == 0: Perfect Dodge (Just Evade) - only while dodging
+            if (!isGuardMode && st.easyEvade && IsPlayerHoldingEvade())
+            {
+                if (outResult && reinterpret_cast<uintptr_t>(outResult) >= kMinPointer)
+                    *reinterpret_cast<uint8_t*>(outResult) = 1;
+                return true;
+            }
 
             return orig;
         }
@@ -957,6 +994,15 @@ namespace trinity::game
         else
         {
             LOG_OK("player: just-core hook installed @ %p", g_justCoreTarget);
+        }
+
+        // Combat Timing & Hitbox Evaluator (upstream v1.3.2): helper for Easy
+        // Parry / Easy Evade at the hitbox layer.
+        if (mem::InstallHook("player: combat-timing", kSig_CombatTimingEval,
+                             "Easy Parry & Easy Evade helper timing disabled",
+                             &hkCombatTimingEval, &oCombatTimingEval, &g_combatTimingTarget))
+        {
+            LOG_OK("player: combat-timing hook installed @ %p", g_combatTimingTarget);
         }
 
         // DamageApply: try primary signature first, then Alt (TU 2.00 recompile shifted the prologue).
@@ -1024,6 +1070,7 @@ namespace trinity::game
         mem::RemoveHook(&g_commitTarget);
         mem::RemoveHook(&g_damageHookTarget);
         mem::RemoveHook(&g_justCoreTarget);
+        mem::RemoveHook(&g_combatTimingTarget);
         for (int i = 0; i < kMaxPlayers; ++i)
         {
             g_hpEntries[i].store(0);

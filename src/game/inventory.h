@@ -43,6 +43,11 @@ namespace trinity::game
         static bool Install();
         static void Remove();
 
+        // No Bounty (upstream v1.3.2): zeroes the WantedInfo table's crime price
+        // increases (or restores them). Refuses to enable before the player is
+        // loaded into the world; returns whether the table was actually touched.
+        static bool SetNoBounty(bool enable);
+
         // True once a live inventory holder resolves (usually immediately
         // after load via the global walk).
         static bool Ready();

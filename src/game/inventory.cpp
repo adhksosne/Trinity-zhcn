@@ -1913,10 +1913,47 @@ namespace trinity::game
                 }
             }
         }
+
+        // --- No Bounty: crime/wanted suppression (upstream v1.3.2) -----------
+        // Two hooks: the wanted-state evaluator (return 7 = eWantedState_None
+        // blocks witness/pursuit/bounty) and the central crime event dispatcher
+        // (return 0 suppresses murder/assault/theft events, the crime UI banner,
+        // the minimap wanted circle and guard hostility).
+        using EvaluateCrimeWantedState_t = uint8_t(__fastcall*)(void* wantedMgr, void* actorCtx);
+        EvaluateCrimeWantedState_t oEvaluateCrimeWantedState = nullptr;
+        void* g_evalWantedTarget = nullptr;
+
+        uint8_t __fastcall hkEvaluateCrimeWantedState(void* wantedMgr, void* actorCtx)
+        {
+            const State& st = State::Get();
+            if (st.noBounty)
+                return 7; // eWantedState_None
+            return oEvaluateCrimeWantedState ? oEvaluateCrimeWantedState(wantedMgr, actorCtx) : 0;
+        }
+
+        using RegisterCrimeEvent_t = uint8_t(__fastcall*)(void* wantedMgr, uint32_t crimeId, void* outInfo, void* a4);
+        RegisterCrimeEvent_t oRegisterCrimeEvent = nullptr;
+        void* g_registerCrimeTarget = nullptr;
+
+        uint8_t __fastcall hkRegisterCrimeEvent(void* wantedMgr, uint32_t crimeId, void* outInfo, void* a4)
+        {
+            const State& st = State::Get();
+            if (st.noBounty)
+                return 0; // fully suppress the crime event
+            return oRegisterCrimeEvent ? oRegisterCrimeEvent(wantedMgr, crimeId, outInfo, a4) : 0;
+        }
     }
 
     bool Inventory::Install()
     {
+        // No Bounty: crime/wanted suppression hooks (non-fatal).
+        mem::InstallHook("world: evaluate-wanted-state", kSig_EvaluateCrimeWantedState,
+                         "Witnessed/Assault crime bypass disabled",
+                         &hkEvaluateCrimeWantedState, &oEvaluateCrimeWantedState, &g_evalWantedTarget);
+        mem::InstallHook("world: register-crime-event", kSig_RegisterCrimeEvent,
+                         "Crime event dispatch & UI banner bypass disabled",
+                         &hkRegisterCrimeEvent, &oRegisterCrimeEvent, &g_registerCrimeTarget);
+
         if (!mem::InstallHook("inventory: item-count accessor", kSig_InvGetItemQty, nullptr,
                               &hkGetItemQty, &oGetItemQty, &g_qtyTarget, 4))
         {
@@ -2082,17 +2119,95 @@ namespace trinity::game
         // for Game Speed.
         if (g_stackApplied) { SetAllMaxStackSizes(false, 0); g_stackApplied = false; }
         if (g_slotApplied)  { SetAllSlotSizes(false, 0);     g_slotApplied  = false; }
+        SetNoBounty(false); // restore any zeroed WantedInfo prices
 
         mem::RemoveHook(&g_qtyTarget);
         mem::RemoveHook(&g_insTarget);
         mem::RemoveHook(&g_commitTarget);
         mem::RemoveHook(&g_expandTarget); // after the restore above, which
                                           // still calls its trampoline
+        mem::RemoveHook(&g_evalWantedTarget);
+        mem::RemoveHook(&g_registerCrimeTarget);
         g_holder.store(0);
         g_serverHolder.store(0);
         g_serverContainer.store(0);
         g_candCount.store(0);
         g_storages.clear();
+    }
+
+    bool Inventory::SetNoBounty(bool enable)
+    {
+        // Gating safety: do NOT modify table definitions during startup / main
+        // menu. Wait until the player is loaded into the world so entity combat
+        // flags are not corrupted.
+        if (!Player::Ready() && enable)
+            return false;
+
+        static int s_activeState = -1;
+        const int targetState = enable ? 1 : 0;
+        if (s_activeState == targetState) return true;
+        s_activeState = targetState;
+
+        EnsureTablesResolved();
+
+        // 1. WantedInfo table: zero the crime price increases (or restore them).
+        static uintptr_t s_wantedGlobal = 0;
+        static bool      s_wantedLooked = false;
+        if (!s_wantedLooked)
+        {
+            s_wantedLooked = true;
+            s_wantedGlobal = FindTableGlobal(kStr_WantedInfoTable);
+            LOG(s_wantedGlobal ? "world: WantedInfo table @ %p - No Bounty available."
+                               : "world: WantedInfo table not found - bounty price left alone.",
+                reinterpret_cast<void*>(s_wantedGlobal));
+        }
+
+        int changed = 0;
+        uint32_t wantedCount = 0;
+        if (s_wantedGlobal)
+        {
+            uintptr_t table = 0;
+            if (ReadPtr(s_wantedGlobal, &table) && table >= kMinPointer)
+            {
+                if (Read32(table + kOff_ItemTable_Count, &wantedCount) && wantedCount > 0 && wantedCount <= kWantedRows_Max)
+                {
+                    static std::vector<int64_t> s_origPrice;
+                    static std::vector<char>    s_wantedCaptured;
+                    if (s_wantedCaptured.size() != wantedCount)
+                    {
+                        s_origPrice.assign(wantedCount, 0);
+                        s_wantedCaptured.assign(wantedCount, 0);
+                    }
+
+                    for (uint32_t row = 0; row < wantedCount; ++row)
+                    {
+                        uintptr_t def = 0;
+                        if (!DefForRow(s_wantedGlobal, static_cast<uint16_t>(row), &def) || def < kMinPointer) continue;
+
+                        if (enable)
+                        {
+                            if (!s_wantedCaptured[row])
+                            {
+                                int64_t orig = 0;
+                                if (!Read64(def + kOff_WantedDef_IncreasePrice, &orig)) continue;
+                                s_origPrice[row] = orig;
+                                s_wantedCaptured[row] = 1;
+                            }
+                            if (Write64(def + kOff_WantedDef_IncreasePrice, 0)) ++changed;
+                        }
+                        else if (s_wantedCaptured[row])
+                        {
+                            if (Write64(def + kOff_WantedDef_IncreasePrice, static_cast<uint64_t>(s_origPrice[row])))
+                                ++changed;
+                        }
+                    }
+                }
+            }
+        }
+
+        LOG_OK("world: No Bounty %s - price zeroed on %d/%u wanted row(s).",
+               enable ? "applied" : "reverted", changed, wantedCount);
+        return changed > 0;
     }
 
     bool Inventory::Ready()

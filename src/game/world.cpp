@@ -81,37 +81,48 @@ namespace trinity::game
         }
 
         // --- Game Speed: native FrameTimerUpdate hook ------------------------
-        // Controls the engine's true time-scale multiplier (see offsets.h
-        // kSig_FrameTimerBody). mode=1 + multiplier=gameSpeedMult each frame.
+        // Ported from upstream v1.3.2: instead of driving the engine's time
+        // mode/multiplier fields, scale the frame delta the timer computed
+        // this frame (Delta/ScaledDelta) - survives high multipliers and the
+        // engine's own scaling logic. oFrameTimerUpdate runs first so the
+        // engine has already produced dt, then we overwrite it.
         using FrameTimerUpdate_t = void(__fastcall*)(void* appMgr);
         FrameTimerUpdate_t oFrameTimerUpdate = nullptr;
         void* g_frameTimerUpdateTarget = nullptr;
-        uintptr_t g_liveTimeStruct = 0;
 
         void __fastcall hkFrameTimerUpdate(void* appMgr)
         {
-            if (appMgr)
+            if (oFrameTimerUpdate)
+                oFrameTimerUpdate(appMgr);
+
+            if (!appMgr) return;
+
+            const State& st = State::Get();
+            if (st.gameSpeed && std::fabs(st.gameSpeedMult - 1.0f) > 0.01f)
             {
-                uintptr_t app = reinterpret_cast<uintptr_t>(appMgr);
-                uintptr_t timeStruct = 0;
-                if (mem::ReadPtr(app + 0x60, &timeStruct) && timeStruct >= kMinPointer)
+                __try
                 {
-                    g_liveTimeStruct = timeStruct;
-                    const State& st = State::Get();
-                    if (st.gameSpeed)
+                    uintptr_t app = reinterpret_cast<uintptr_t>(appMgr);
+                    uintptr_t timeStruct = 0;
+                    if (mem::ReadPtr(app + 0x60, &timeStruct) && timeStruct >= kMinPointer)
                     {
                         const float mult = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
-                        Write8(timeStruct + kOff_TimeStruct_Mode, 1); // Mode 1: Scaled Time
-                        Write32(timeStruct + kOff_TimeStruct_Multiplier, FloatBits(mult));
-                    }
-                    else
-                    {
-                        Write8(timeStruct + kOff_TimeStruct_Mode, 0); // Mode 0: Normal 1.0x Real Time
-                        Write32(timeStruct + kOff_TimeStruct_Multiplier, FloatBits(1.0f));
+                        float dt = 0.0f;
+                        uint32_t bits = 0;
+                        if (mem::Read32(timeStruct + kOff_TimeStruct_Delta, &bits))
+                        {
+                            std::memcpy(&dt, &bits, sizeof(dt));
+                            if (dt > 0.0001f && dt < 1.0f)
+                            {
+                                const float newDt = dt * mult;
+                                mem::Write32(timeStruct + kOff_TimeStruct_Delta, FloatBits(newDt));
+                                mem::Write32(timeStruct + kOff_TimeStruct_ScaledDelta, FloatBits(newDt));
+                            }
+                        }
                     }
                 }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
             }
-            oFrameTimerUpdate(appMgr);
         }
 
         bool ReadI32(uintptr_t addr, int* out)
@@ -705,17 +716,12 @@ namespace trinity::game
 
     void World::Remove()
     {
-        // Restore game speed to normal
+        // Restore game speed: the frame-delta override lives inside the hook,
+        // so removing it is enough - no static state to restore.
         if (g_frameTimerUpdateTarget)
         {
-            if (g_liveTimeStruct >= kMinPointer)
-            {
-                Write8(g_liveTimeStruct + kOff_TimeStruct_Mode, 0);
-                Write32(g_liveTimeStruct + kOff_TimeStruct_Multiplier, FloatBits(1.0f));
-            }
             mem::RemoveHook(&g_frameTimerUpdateTarget);
             oFrameTimerUpdate = nullptr;
-            g_liveTimeStruct = 0;
         }
 
         // Restore the render manager's time-of-day limits if we were holding
