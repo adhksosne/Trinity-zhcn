@@ -84,6 +84,19 @@ static LONG WINAPI VectoredCrashLogger(PEXCEPTION_POINTERS ep)
     snprintf(msg, sizeof(msg), "AV: code=0x%08lX rip=%s addr=0x%llX\n",
              static_cast<unsigned long>(code), where,
              static_cast<unsigned long long>(addr));
+
+    // Throttle: some faulting code paths (e.g. a bad memcpy) can fire thousands
+    // of times a second; every identical rip would otherwise grow
+    // Trinity_Crash.txt unboundedly. Log the first occurrence, then at most one
+    // per second per rip.
+    static ULONGLONG s_lastMs = 0;
+    static char      s_lastWhere[64] = "";
+    const ULONGLONG nowMs = GetTickCount64();
+    if (nowMs - s_lastMs < 1000 && !strcmp(where, s_lastWhere))
+        return EXCEPTION_CONTINUE_SEARCH;
+    s_lastMs = nowMs;
+    strncpy_s(s_lastWhere, sizeof(s_lastWhere), where, _TRUNCATE);
+
     AppendCrashLine(msg);
 
     // Keep one full dump of a foreign fault for post-mortem analysis.
