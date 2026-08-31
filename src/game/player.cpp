@@ -357,9 +357,9 @@ namespace trinity::game
             XINPUT_STATE xs{};
             if (hooks::ReadPadsCached(xs))
             {
-                // A / B are jump / roll in the default pad bindings.
-                if ((xs.Gamepad.wButtons & XINPUT_GAMEPAD_A) != 0 ||
-                    (xs.Gamepad.wButtons & XINPUT_GAMEPAD_B) != 0)
+                // A / B are jump / roll and RT pulls the dodge in default binds.
+                if ((xs.Gamepad.wButtons & (XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B)) != 0 ||
+                    xs.Gamepad.bRightTrigger > 30)
                     return true;
             }
             return false;
@@ -841,14 +841,6 @@ namespace trinity::game
                 delta = 0;
                 a6 = 2;
                 a7 = 1;
-            }
-            else if (st.easyEvade && isPlayerTarget && isEnemyAttacker && IsPlayerHoldingEvade())
-            {
-                // Easy Perfect Evade: while dodging, any incoming enemy attack
-                // is absorbed by a perfect evade: zero damage. (The engine's
-                // JustCore hook also forces the perfect-dodge judgement, but its
-                // window is a few frames, so we null the damage here too.)
-                delta = 0;
             }
             else if (delta < 0)
             {
