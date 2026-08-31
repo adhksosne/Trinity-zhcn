@@ -1902,8 +1902,17 @@ namespace trinity::ui
         }
         else if (g_pendingPop || g_nav.back)
         {
-            if (g_stack.empty()) State::Get().menuOpen = false;
-            else                 g_stack.pop_back();
+            if (g_stack.empty())
+            {
+                State::Get().menuOpen = false;
+                // Keep the pad-eating window alive briefly so the B press that
+                // just closed the menu never reaches the game (it would roll).
+                State::Get().menuCloseAt = GetTickCount64();
+            }
+            else
+            {
+                g_stack.pop_back();
+            }
         }
         g_pendingPop = false;
     }

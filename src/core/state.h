@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 namespace trinity
@@ -19,6 +20,12 @@ namespace trinity
     struct State
     {
         bool menuOpen = false;
+
+        // When the menu was closed (GetTickCount64). The XInput hook keeps
+        // neutralizing the menu's pad buttons for a short window after this,
+        // so the button that closed the menu (e.g. B -> roll) never leaks to
+        // the game. 0 = no recent close.
+        uint64_t menuCloseAt = 0;
 
         // True while a ui::Search row is capturing typed text. The window
         // hook swallows ALL keyboard input from the game while this is set,

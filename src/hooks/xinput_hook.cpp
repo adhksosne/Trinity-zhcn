@@ -1,6 +1,7 @@
 #include "xinput_hook.h"
 
 #include <MinHook.h>
+#include <Windows.h>
 
 #include "../core/state.h"
 
@@ -19,6 +20,11 @@ namespace trinity::hooks
     // Any real-state trampoline, used by the menu to read the pad it's blocking.
     static XInputGetState_t g_read = nullptr;
 
+    // How long after the menu closes we keep neutralizing the menu buttons.
+    // The press that closed the menu (e.g. B on the last page) would otherwise
+    // reach the game as a fresh button press and roll/dodge the character.
+    constexpr ULONGLONG kMenuCloseEatWindowMs = 250;
+
     static void Neutralize(XINPUT_STATE* s)
     {
         // Only strip the buttons the menu itself uses (d-pad, A/B/X, and the
@@ -31,7 +37,13 @@ namespace trinity::hooks
             XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B | XINPUT_GAMEPAD_X |
             XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
 
-        if (s->Gamepad.wButtons & kMenuButtons)
+        const State& st      = State::Get();
+        const ULONGLONG now  = GetTickCount64();
+        const bool eatMenuKeys = st.menuOpen ||
+            (st.menuCloseAt != 0 && now >= st.menuCloseAt &&
+             now - st.menuCloseAt < kMenuCloseEatWindowMs);
+
+        if (eatMenuKeys && (s->Gamepad.wButtons & kMenuButtons))
         {
             s->Gamepad.wButtons &= ~kMenuButtons;
             ++s->dwPacketNumber; // bump so the game registers the state as changed

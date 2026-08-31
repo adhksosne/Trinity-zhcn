@@ -920,7 +920,11 @@ namespace trinity::hooks
 
         State& st = State::Get();
         if (ui::PollMenuToggle())
+        {
             st.menuOpen = !st.menuOpen;
+            if (!st.menuOpen)
+                st.menuCloseAt = GetTickCount64(); // keep pad-eat alive briefly
+        }
 
         // Marker Teleport hotkey (polled when menu and text captures are not
         // active). Gated behind st.markerTeleportHotkey, which defaults OFF:
