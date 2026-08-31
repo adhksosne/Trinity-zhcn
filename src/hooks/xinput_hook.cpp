@@ -23,7 +23,9 @@ namespace trinity::hooks
     // How long after the menu closes we keep neutralizing the menu buttons.
     // The press that closed the menu (e.g. B on the last page) would otherwise
     // reach the game as a fresh button press and roll/dodge the character.
-    constexpr ULONGLONG kMenuCloseEatWindowMs = 400;
+    // Short window only: a still-held B is covered by the release check below,
+    // so the player can act again almost immediately after closing.
+    constexpr ULONGLONG kMenuCloseEatWindowMs = 150;
 
     static void Neutralize(XINPUT_STATE* s)
     {
