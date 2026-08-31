@@ -23,7 +23,7 @@ namespace trinity::hooks
     // How long after the menu closes we keep neutralizing the menu buttons.
     // The press that closed the menu (e.g. B on the last page) would otherwise
     // reach the game as a fresh button press and roll/dodge the character.
-    constexpr ULONGLONG kMenuCloseEatWindowMs = 250;
+    constexpr ULONGLONG kMenuCloseEatWindowMs = 400;
 
     static void Neutralize(XINPUT_STATE* s)
     {
@@ -37,12 +37,33 @@ namespace trinity::hooks
             XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B | XINPUT_GAMEPAD_X |
             XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
 
-        const State& st      = State::Get();
-        const ULONGLONG now  = GetTickCount64();
-        const bool eatMenuKeys = st.menuOpen ||
-            (st.menuCloseAt != 0 && now >= st.menuCloseAt &&
-             now - st.menuCloseAt < kMenuCloseEatWindowMs);
+        const State& st     = State::Get();
+        const ULONGLONG now = GetTickCount64();
 
+        // Eat while the menu is open, plus a short window after it closes.
+        // If the button that closed it (B) is still physically held past the
+        // window, keep eating until it is released, so a long-held close press
+        // can never roll the character either.
+        static bool s_eatCloseHold = false;
+        if (st.menuOpen)
+        {
+            s_eatCloseHold = false;
+        }
+        else if (st.menuCloseAt != 0 && now >= st.menuCloseAt)
+        {
+            const ULONGLONG age = now - st.menuCloseAt;
+            if (age < kMenuCloseEatWindowMs)
+                s_eatCloseHold = true;                            // in-window
+            else if (!(s->Gamepad.wButtons & XINPUT_GAMEPAD_B))
+                s_eatCloseHold = false;                           // released
+            // age past window && B still held: keep s_eatCloseHold true
+        }
+        else if (!(s->Gamepad.wButtons & XINPUT_GAMEPAD_B))
+        {
+            s_eatCloseHold = false;
+        }
+
+        const bool eatMenuKeys = st.menuOpen || s_eatCloseHold;
         if (eatMenuKeys && (s->Gamepad.wButtons & kMenuButtons))
         {
             s->Gamepad.wButtons &= ~kMenuButtons;
@@ -56,7 +77,7 @@ namespace trinity::hooks
         static DWORD WINAPI NAME(DWORD i, XINPUT_STATE* s)                 \
         {                                                                  \
             const DWORD r = ORIG(i, s);                                    \
-            if (r == ERROR_SUCCESS && s && State::Get().menuOpen)         \
+            if (r == ERROR_SUCCESS && s)                                   \
                 Neutralize(s);                                             \
             return r;                                                      \
         }
