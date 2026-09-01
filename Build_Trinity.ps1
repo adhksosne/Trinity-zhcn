@@ -23,6 +23,17 @@ if (-not $visualStudio) {
     $visualStudio = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 }
 if (-not $visualStudio) {
+    # Preview/Insiders installations can contain a complete C++ workload while
+    # not yet being registered with an older vswhere. Probe the known VS 18
+    # channel paths before reporting that the compiler is missing.
+    $visualStudio = @(
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\18\Insiders'),
+        (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\18\Preview')
+    ) | Where-Object {
+        Test-Path -LiteralPath (Join-Path $_ 'VC\Auxiliary\Build\vcvars64.bat')
+    } | Select-Object -First 1
+}
+if (-not $visualStudio) {
     throw 'The Visual Studio C++ x64 compiler is missing. Add the Desktop development with C++ workload.'
 }
 
@@ -107,7 +118,7 @@ if ($numMatch.Success) {
     if ($majorMatch.Success -and $minorMatch.Success -and $patchMatch.Success) {
         $versionStr = "$($majorMatch.Groups[1].Value).$($minorMatch.Groups[1].Value).$($patchMatch.Groups[1].Value)"
     } else {
-        $versionStr = "2.00.01"
+        $versionStr = "1.3.3"
     }
 }
 
@@ -167,7 +178,7 @@ if (-not (Test-Path -LiteralPath $variantReleaseDir)) {
     New-Item -ItemType Directory -Path $variantReleaseDir -Force | Out-Null
 }
 
-$zipName = "Trinity-v$versionStr-vTweak (2.00.01).zip"
+$zipName = "Trinity-v$versionStr-vTweak (2.00.02).zip"
 $zipPath = Join-Path $variantReleaseDir $zipName
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
@@ -180,7 +191,7 @@ Copy-Item -Path $zipPath -Destination (Join-Path $commonReleaseDir $zipName) -Fo
 Copy-Item -Path $zipPath -Destination (Join-Path $releaseDir $zipName) -Force
 
 # Copy loose .asi files directly to variant release folder
-Copy-Item -Path (Join-Path $pkgDir 'Trinity.asi') -Destination (Join-Path $variantReleaseDir 'Trinity-2.00.01.asi') -Force
+Copy-Item -Path (Join-Path $pkgDir 'Trinity.asi') -Destination (Join-Path $variantReleaseDir 'Trinity-2.00.02.asi') -Force
 Copy-Item -Path (Join-Path $pkgDir 'Trinity.asi') -Destination (Join-Path $variantReleaseDir 'Trinity.asi') -Force
 
 # Setup dedicated Languages folders

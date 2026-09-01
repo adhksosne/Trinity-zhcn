@@ -7,7 +7,10 @@
 #include "build_timestamp.h"
 #include "localization.h"
 #include "version_detect.h"
+#include "readiness.h"
 #include "../hooks/dx12_hook.h"
+#include "../mem/scanner.h"
+#include "../game/offsets.h"
 #include "../game/player.h"
 #include "../game/teleport.h"
 #include "../game/inventory.h"
@@ -18,6 +21,41 @@
 #if defined(TRINITY_EXTENDED)
 #include "../game/dlc.h"
 #endif
+
+namespace
+{
+    bool GameplayCodeReady()
+    {
+        using namespace trinity::game;
+
+        // One unique sentinel per independently failing gameplay area from the
+        // TU 2.00.02 startup regression. Waiting for the whole set prevents a
+        // partially materialised image from permanently disabling later hooks.
+        const char* const required[] = {
+            kCharMgrAnchors[0].sig,
+            kSig_StatCommit,
+            kSig_DamageApply_Alt,
+            kSig_CombatTimingEval,
+            kSig_MoveUpdate,
+            kSig_InvGetItemQty,
+            kSig_EvaluateCrimeWantedState,
+            kSig_FrameTimerBody,
+            kSig_FieldTimeTick,
+            kSig_TodEngineGlobal,
+            kSig_WeatherRain,
+            kSig_DyeApplySlot,
+            kSig_EquipEffectRefresh,
+        };
+
+        // Startup probing only needs presence. The actual installers retain
+        // their stricter uniqueness/consensus checks. Stopping at the first
+        // hit keeps polling light while the packed image is materialising.
+        for (const char* sig : required)
+            if (!trinity::mem::FindPattern(sig))
+                return false;
+        return true;
+    }
+}
 
 namespace trinity
 {
@@ -51,6 +89,23 @@ namespace trinity
             MH_Uninitialize();
             return;
         }
+
+        // TU 2.00.02 now materialises large gameplay-code regions after the
+        // ASI loader starts us. A single early scan therefore produced dozens
+        // of false NOT FOUND results even though the exact AOBs appeared a few
+        // seconds later. Keep the render hook responsive and wait on this
+        // worker thread until every gameplay subsystem is actually scannable.
+        LOG("Waiting for TU 2.00.02 gameplay code to become ready...");
+        const bool codeReady = core::WaitForReadiness(
+            &GameplayCodeReady,
+            [] { return GetTickCount64(); },
+            [](uint32_t ms) { Sleep(ms); },
+            180000,
+            2000);
+        if (codeReady)
+            LOG_OK("Gameplay code ready - installing feature hooks.");
+        else
+            LOG_WARN("Gameplay-code readiness timed out after 180 seconds; installing available hooks only.");
 
         // Gameplay features. Non-fatal: if a signature ever fails to resolve
         // the overlay still runs, the feature is just disabled and logged.

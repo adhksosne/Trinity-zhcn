@@ -1,6 +1,6 @@
 # Trinity — Crimson Desert (vTweak by Lian)
 
-Trinity is an in-game DirectX 12 mod menu for **Crimson Desert**, originally created by **XeTrinityz**. This repository provides an enhanced, fully updated build for game version **TU 1.17.00 – 2.00.01+** with critical memory fixes, auto-navigation, and quality-of-life enhancements.
+Trinity is an in-game DirectX 12 mod menu for **Crimson Desert**, originally created by **XeTrinityz**. This repository provides an enhanced, fully updated build for game version **TU 1.17.00 – 2.00.02** with critical memory fixes, auto-navigation, and quality-of-life enhancements.
 
 > **Single-player use only.** Do not use this project in online or anti-cheat-protected modes. This community project is not affiliated with or endorsed by Pearl Abyss.
 
@@ -23,6 +23,15 @@ Trinity is an in-game DirectX 12 mod menu for **Crimson Desert**, originally cre
 | Unlimited Custom Bookmarks | Storage Filters & Item Editor |
 | :---: | :---: |
 | ![Saved Locations](images/image7.png) | ![Storage Editor](images/image8.png) |
+
+---
+
+## What's New in v1.3.3
+
+- **Crimson Desert TU 2.00.02 Hotfix**:
+  - Waits for delayed gameplay-code regions before resolving hooks, preventing valid features from being disabled by early startup scans.
+  - Scans TU 2.00.02's executable `.debug` section instead of mistaking the live game code for stale debug data.
+  - Detects PE revision `1.0.0.2692` as TU 2.00.02.
 
 ---
 

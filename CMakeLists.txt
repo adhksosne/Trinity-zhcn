@@ -58,6 +58,9 @@ endif()
 add_library(Trinity SHARED
     src/dllmain.cpp
     src/core/mod.cpp
+    src/core/readiness.cpp
+    src/core/version_mapping.cpp
+    src/mem/section_filter.cpp
     src/core/settings.cpp
     src/core/localization.cpp
     src/core/version_detect.cpp
@@ -108,4 +111,16 @@ if(MSVC)
     target_compile_options(Trinity PRIVATE /guard:cf)
     target_link_options(Trinity PRIVATE
         /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /guard:cf)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(TrinityReadinessTests
+        tests/readiness_tests.cpp
+        src/core/readiness.cpp
+        src/core/version_mapping.cpp
+        src/mem/section_filter.cpp
+    )
+    target_include_directories(TrinityReadinessTests PRIVATE src)
+    add_test(NAME TrinityReadinessTests COMMAND TrinityReadinessTests)
 endif()
