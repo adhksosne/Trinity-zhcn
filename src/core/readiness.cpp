@@ -4,6 +4,13 @@
 
 namespace trinity::core
 {
+    ReadinessProfile ReadinessProfileForRevision(uint16_t revision)
+    {
+        return revision == 2760
+            ? ReadinessProfile::Tu201KnownCompatible
+            : ReadinessProfile::LegacyComplete;
+    }
+
     bool WaitForReadiness(const ReadinessProbe& probe,
                           const ReadinessClock& now,
                           const ReadinessPause& pause,

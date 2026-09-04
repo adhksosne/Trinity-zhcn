@@ -50,6 +50,7 @@ namespace trinity::game
         // *(*g_charMgrGlobal). Zero if no anchor resolved, in which case every
         // stat feature below is inert (RefreshSelf no-ops).
         uintptr_t g_charMgrGlobal = 0;
+        std::atomic<bool> g_currentFallbackLogged{false};
 
         // Resolve the char-manager global by consensus across kCharMgrAnchors.
         // Each anchor is an independent call site that RIP-resolves the same
@@ -347,9 +348,63 @@ namespace trinity::game
 
         static ULONGLONG s_lastResolveMs = 0;
 
+        // TU 2.01.00 no longer exposes the gameplay-character manager through
+        // any of the pre-2.01 call-site anchors.  The inventory subsystem does,
+        // however, resolve the currently controlled live character through a
+        // separately validated client-realm root.  Use that owner as a narrow
+        // fallback so the active player's stat features remain available while
+        // deliberately leaving party-wide and mount discovery disabled.
+        void TickResolveCurrentPlayerFallback()
+        {
+            ClearPlayerSets();
+            g_playerPossessor.store(0, std::memory_order_release);
+
+            const uintptr_t owner = Inventory::ClientCharacterAddr();
+            SelfChain c{};
+            if (owner < kMinPointer || !WalkSelfChain(owner, &c)) return;
+
+            if (!g_currentFallbackLogged.exchange(true, std::memory_order_acq_rel))
+                LOG_OK("player: current-character fallback resolved @ %p (active player only).",
+                       reinterpret_cast<void*>(owner));
+
+            g_hpEntries[0].store(c.statArray, std::memory_order_release);
+            g_actors[0].store(c.actor, std::memory_order_release);
+            g_targetOwners[0].store(c.targetOwner, std::memory_order_release);
+            g_owners[0].store(owner, std::memory_order_release);
+
+            uint64_t possessor = 0;
+            if (Read64(owner + kOff_Owner_Possessor, &possessor) && possessor >= kMinPointer)
+                g_playerPossessor.store(static_cast<uintptr_t>(possessor), std::memory_order_release);
+
+            int nStam = 0, nSpir = 0;
+            for (int k = 1; k < kStatArray_ScanEntries; ++k)
+            {
+                const uintptr_t e = c.statArray + k * kSizeof_StatEntry;
+                int32_t statType = 0;
+                if (!StatEntryType(e, &statType) || !PlausibleStatType(statType)) break;
+                if (IsStaminaType(statType) && nStam < kMaxStatEntries)
+                    g_stamEntries[nStam++].store(e, std::memory_order_release);
+                else if (IsSpiritType(statType) && nSpir < kMaxStatEntries)
+                    g_spiritEntries[nSpir++].store(e, std::memory_order_release);
+            }
+
+            const State& st = State::Get();
+            if (st.godMode) PinEntry(c.statArray);
+            if (st.infStamina)
+                for (int i = 0; i < nStam; ++i)
+                    PinEntry(g_stamEntries[i].load(std::memory_order_relaxed));
+            if (st.infSpirit)
+                for (int i = 0; i < nSpir; ++i)
+                    PinEntry(g_spiritEntries[i].load(std::memory_order_relaxed));
+        }
+
         void TickResolveSelf()
         {
-            if (!g_charMgrGlobal) return;
+            if (!g_charMgrGlobal)
+            {
+                TickResolveCurrentPlayerFallback();
+                return;
+            }
             uint64_t p = 0, mgr = 0, data = 0;
             if (!Read64(g_charMgrGlobal, &p) || p < kMinPointer) return;                 // P = *slot
             if (!Read64(static_cast<uintptr_t>(p), &mgr) || mgr < kMinPointer) return;   // mgr = *P
@@ -832,11 +887,11 @@ namespace trinity::game
         if (!g_charMgrGlobal)
         {
             LOG_ERR("player: char-manager global NOT FOUND (no anchor matched) - God Mode / "
-                    "Infinite Stamina / Infinite Spirit / damage multipliers disabled.");
+                    "Infinite Stamina / Infinite Spirit limited to the current-character fallback.");
         }
 
         mem::InstallHook("player: stat-commit", kSig_StatCommit,
-                         "God Mode / Infinite Stamina / Infinite Spirit disabled",
+                         "direct write guard unavailable; current-character pins remain active",
                          &hkStatCommit, &oStatCommit, &g_commitTarget);
 
         // DamageApply: try primary signature first, then Alt (TU 2.00 recompile shifted the prologue).
@@ -929,6 +984,7 @@ namespace trinity::game
             g_mountOwners[i].store(0);
         }
         g_mountCount.store(0);
+        g_currentFallbackLogged.store(false, std::memory_order_release);
         for (int i = 0; i < kMaxStatEntries; ++i)
         {
             g_stamEntries[i].store(0);

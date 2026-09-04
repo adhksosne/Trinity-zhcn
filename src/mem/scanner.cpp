@@ -87,9 +87,9 @@ namespace trinity::mem
         // boundary (e.g. across two .text sub-ranges) without being missed.
         //
         // Some builds ship a non-executable `.debug` data section containing
-        // stale machine-code bytes. TU 2.00.02 instead puts the LIVE main code
-        // image in an executable `.debug` section. Filter by characteristics,
-        // never by the section name alone.
+        // stale machine-code bytes. Some modern builds instead put the live
+        // main code image in an executable section with a nonstandard name.
+        // Filter by characteristics, never by the section name alone.
         std::vector<std::pair<uintptr_t, uintptr_t>> ReadableSpans(const ModuleRegion& mod)
         {
             std::vector<std::pair<uintptr_t, uintptr_t>> spans;

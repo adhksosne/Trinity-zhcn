@@ -4,12 +4,28 @@ namespace trinity::core
 {
     const char* ModernTitleUpdateForRevision(uint16_t revision)
     {
-        if (revision >= 2692)
-            return "2.00.02";
-        if (revision >= 2650)
-            return "2.00.01";
-        if (revision >= 2625)
-            return "2.00.00";
-        return nullptr;
+        switch (revision)
+        {
+        case 2760: return "2.01.00";
+        case 2692: return "2.00.02";
+        case 2658: return "2.00.01";
+        case 2625: return "2.00.00";
+        default:   return nullptr;
+        }
+    }
+
+    uintptr_t MoveComponentOwnerOffsetForRevision(uint16_t revision)
+    {
+        return revision == 2760 ? 0x2B8 : 0x298;
+    }
+
+    bool MayUseLegacyFuzzySignaturesForRevision(uint16_t revision)
+    {
+        return revision < 2760;
+    }
+
+    uintptr_t InventoryCoreGlobalMovOffsetForRevision(uint16_t revision)
+    {
+        return revision == 2760 ? 0 : 0x15;
     }
 }

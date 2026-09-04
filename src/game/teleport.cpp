@@ -33,6 +33,8 @@
 #include "../hooks/xinput_hook.h"
 #include "../core/logger.h"
 #include "../core/state.h"
+#include "../core/version_detect.h"
+#include "../core/version_mapping.h"
 
 namespace trinity::game
 {
@@ -145,7 +147,6 @@ namespace trinity::game
 
         alignas(8) std::atomic<uintptr_t> g_markerPlayer{0};
         std::atomic<uintptr_t> g_playerMoveOwner{0};
-        constexpr uintptr_t    kOff_MoveComp_MoveOwner = 0x298;
 
         std::array<CandidateSlot, kExpected_MarkerMatches> g_markerCandidates{};
         std::atomic<uint64_t> g_markerProtectFlag{0};
@@ -1293,7 +1294,9 @@ namespace trinity::game
             {
                 const uintptr_t player = g_playerMoveOwner.load(std::memory_order_relaxed);
                 uintptr_t owner = 0;
-                if (player >= kMinPointer && ReadPtr(comp + kOff_MoveComp_MoveOwner, &owner))
+                const uintptr_t moveOwnerOffset = core::MoveComponentOwnerOffsetForRevision(
+                    core::GetGameVersion().revision);
+                if (player >= kMinPointer && ReadPtr(comp + moveOwnerOffset, &owner))
                     isPlayer = (owner == player);
             }
 
@@ -1731,6 +1734,8 @@ namespace trinity::game
         // menu just stays empty (logged).
         uintptr_t travel = mem::FindPattern(kSig_TravelToNode);
         if (!travel)
+            travel = mem::FindPattern(kSig_TravelToNode_Pre201);
+        if (!travel)
             travel = mem::FindPattern(kSig_TravelToNode_Legacy);
 
         if (travel)
@@ -1759,8 +1764,12 @@ namespace trinity::game
 
         // Locomotion sub-step driver for Super Run (optional - Super Jump and
         // everything else still works without it).
-        mem::InstallHook("teleport: locomotion-stepper", kSig_LocoStepper, "Super Run disabled",
-                         &hkLocoStep, &oLocoStep, &g_locoStepTarget);
+        if (!mem::InstallHook("teleport: locomotion-stepper", kSig_LocoStepper, "",
+                              &hkLocoStep, &oLocoStep, &g_locoStepTarget))
+        {
+            mem::InstallHook("teleport: locomotion-stepper (pre-2.01)", kSig_LocoStepper_Pre201,
+                             "Super Run disabled", &hkLocoStep, &oLocoStep, &g_locoStepTarget);
+        }
 
         // Map Marker Teleport subsystem (clean-room marker capture from crimsondesert-main).
         InitMarkerSubsystem();

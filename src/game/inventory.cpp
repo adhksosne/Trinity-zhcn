@@ -15,6 +15,8 @@
 #include <MinHook.h>
 
 #include "offsets.h"
+#include "crime_hook_contract.h"
+#include "inventory_hook_contract.h"
 #include "player.h"
 #include "equipment.h"
 #include "dye.h"
@@ -26,6 +28,7 @@
 #include "../core/text.h"
 #include "../core/state.h"
 #include "../core/version_detect.h"
+#include "../core/version_mapping.h"
 
 namespace trinity::game
 {
@@ -83,6 +86,7 @@ namespace trinity::game
         GetHolder_t       oGetHolder       = nullptr;
         HolderInsert_t    oHolderInsert    = nullptr;
         Commit_t          oCommit          = nullptr;
+        InventoryCommit201_t oCommit201    = nullptr;
         SetExpandSlots_t  oSetExpandSlots  = nullptr;
         ItemValueCtor_t   oItemValueCtor   = nullptr;
         CommitPlacement_t oCommitPlacement = nullptr;
@@ -91,6 +95,7 @@ namespace trinity::game
         void*          g_qtyTarget   = nullptr;
         void*          g_insTarget   = nullptr;
         void*          g_commitTarget = nullptr;
+        void*          g_commit201Target = nullptr;
         void*          g_expandTarget = nullptr;
 
         std::atomic<uintptr_t> g_holder{0};
@@ -1575,6 +1580,25 @@ namespace trinity::game
             return ret;
         }
 
+        void* __fastcall hkCommit201(void* holder, void* err, void* placements,
+                                     uint16_t mode, void* outEvents, uint8_t notify,
+                                     uint8_t reconcile, uint8_t replicate)
+        {
+            if (!oCommit201) return nullptr;
+            uintptr_t container = 0;
+            __try
+            {
+                if (holder && ReadPtr(reinterpret_cast<uintptr_t>(holder) + 8, &container))
+                    NoteContainer(reinterpret_cast<void*>(container));
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+            g_commitActive.store(true, std::memory_order_release);
+            void* ret = oCommit201(holder, err, placements, mode, outEvents,
+                                   notify, reconcile, replicate);
+            g_commitActive.store(false, std::memory_order_release);
+            return ret;
+        }
+
         // --- The holder-insert hook: second capture path ---------------------
         void* __fastcall hkHolderInsert(void* bucket, void* err, void* container, void* itemArr,
                                         uint16_t a5, void* a6, uint8_t a7, uint8_t a8, uint8_t a9)
@@ -1934,11 +1958,11 @@ namespace trinity::game
             return oEvaluateCrimeWantedState ? oEvaluateCrimeWantedState(wantedMgr, actorCtx) : 0;
         }
 
-        using RegisterCrimeEvent_t = uint8_t(__fastcall*)(void* wantedMgr, uint32_t crimeId, void* outInfo, void* a4);
         RegisterCrimeEvent_t oRegisterCrimeEvent = nullptr;
         void* g_registerCrimeTarget = nullptr;
 
-        uint8_t __fastcall hkRegisterCrimeEvent(void* wantedMgr, uint32_t crimeId, void* outInfo, void* a4)
+        void __fastcall hkRegisterCrimeEvent(void* dispatcher, const char* eventName,
+                                             void* eventData, void* eventContext)
         {
             const State& st = State::Get();
             if (st.noBounty)
@@ -1946,9 +1970,10 @@ namespace trinity::game
                 // Completely suppress Murder, Assault, Theft, and Property Destruction:
                 // Prevents the on-screen "Crime: Murder" / "Crime: Assault" banner,
                 // prevents the minimap red wanted circle, and keeps guards 100% peaceful!
-                return 0;
+                return;
             }
-            return oRegisterCrimeEvent ? oRegisterCrimeEvent(wantedMgr, crimeId, outInfo, a4) : 0;
+            if (oRegisterCrimeEvent)
+                oRegisterCrimeEvent(dispatcher, eventName, eventData, eventContext);
         }
     }
 
@@ -1996,23 +2021,37 @@ namespace trinity::game
         // Item is refused, and every other inventory feature still works).
         // These are CALLED, not hooked. The insert planner is oHolderInsert,
         // resolved by the hook above - same function.
-        static const char* kCtorSigs[] = {
-            kSig_TrItemValueCtor,
+        const uint16_t revision = core::GetGameVersion().revision;
+        const bool allowLegacyFuzzy = core::MayUseLegacyFuzzySignaturesForRevision(revision);
+        static const char* kLegacyCtorSigs[] = {
+            kSig_TrItemValueCtor_Pre201,
             "48 89 5C 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC ? 4C 8B",
             "48 89 5C 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8B EC",
             "48 89 5C 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 83 EC",
             "48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC 20 48 8B D9 48 8B 09",
             "48 89 5C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 83 EC",
         };
-        for (const char* sig : kCtorSigs)
+        const uintptr_t currentCtor = mem::FindPattern(kSig_TrItemValueCtor);
+        const size_t currentMatches = mem::CountMatches(kSig_TrItemValueCtor, 2);
+        if (currentCtor && currentMatches == 1)
         {
-            const uintptr_t addr = mem::FindPattern(sig);
-            const size_t matches = mem::CountMatches(sig, 4);
-            if (addr && (matches == 1 || matches == 2))
+            oItemValueCtor = reinterpret_cast<ItemValueCtor_t>(currentCtor);
+            LOG_OK("inventory: TrItemValue TU 2.01 native ctor resolved at %p",
+                   reinterpret_cast<void*>(currentCtor));
+        }
+        else if (allowLegacyFuzzy)
+        {
+            for (const char* sig : kLegacyCtorSigs)
             {
-                oItemValueCtor = reinterpret_cast<ItemValueCtor_t>(addr);
-                LOG_OK("inventory: TrItemValue native ctor resolved at %p (matches=%zu)", reinterpret_cast<void*>(addr), matches);
-                break;
+                const uintptr_t addr = mem::FindPattern(sig);
+                const size_t matches = mem::CountMatches(sig, 4);
+                if (addr && (matches == 1 || matches == 2))
+                {
+                    oItemValueCtor = reinterpret_cast<ItemValueCtor_t>(addr);
+                    LOG_OK("inventory: TrItemValue legacy native ctor resolved at %p (matches=%zu)",
+                           reinterpret_cast<void*>(addr), matches);
+                    break;
+                }
             }
         }
         if (!oItemValueCtor)
@@ -2080,9 +2119,20 @@ namespace trinity::game
         // before the save loads, which an ASI at process start always is.
         // Optional: without it, edits still apply to the client mirror but the
         // reconcile reverts them (the menu still lists/reads fine).
-        mem::InstallHook("inventory: transaction commit", kSig_InvCommit,
-                         "quantity edits will not persist (revert on reconcile)",
-                         &hkCommit, &oCommit, &g_commitTarget, 4);
+        if (revision == 2760)
+        {
+            if (mem::InstallHook("inventory: TU 2.01 transaction commit", kSig_InvCommit,
+                                 "quantity edits will not persist (revert on reconcile)",
+                                 &hkCommit201, &oCommit201, &g_commit201Target, 2))
+                LOG_OK("inventory: TU 2.01 transaction commit hook installed @ %p",
+                       g_commit201Target);
+        }
+        else
+        {
+            mem::InstallHook("inventory: transaction commit", kSig_InvCommit_Pre201,
+                             "quantity edits will not persist (revert on reconcile)",
+                             &hkCommit, &oCommit, &g_commitTarget, 4);
+        }
 
         // Secondary capture path: fires on a real add/drop/buy, not at load.
         // Catches containers that only appear later (e.g. character swap).
@@ -2097,9 +2147,13 @@ namespace trinity::game
         // Durable container walk (optional but preferred - without it the
         // list only appears once the game happens to query an item count,
         // which is hit-or-miss at load).
-        const uintptr_t globAnchor = mem::FindPattern(kSig_InvCoreGlobal);
+        const char* coreGlobalSig = revision == 2760
+            ? kSig_InvCoreGlobal
+            : kSig_InvCoreGlobal_Pre201;
+        const uintptr_t globAnchor = mem::FindPattern(coreGlobalSig);
         if (globAnchor)
-            g_coreGlobal = mem::ResolveRipAt(globAnchor + kOff_InvCoreGlobal_Mov, 7);
+            g_coreGlobal = mem::ResolveRipAt(
+                globAnchor + core::InventoryCoreGlobalMovOffsetForRevision(revision), 7);
 
         // Item defs (optional - resolved lazily when inventory is opened).
         g_itemTableGlobal = FindTableGlobal(kStr_ItemInfoTable);
@@ -2131,6 +2185,7 @@ namespace trinity::game
         mem::RemoveHook(&g_qtyTarget);
         mem::RemoveHook(&g_insTarget);
         mem::RemoveHook(&g_commitTarget);
+        mem::RemoveHook(&g_commit201Target);
         mem::RemoveHook(&g_expandTarget); // after the restore above, which
                                           // still calls its trampoline
         mem::RemoveHook(&g_evalWantedTarget);

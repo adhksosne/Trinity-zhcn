@@ -5,6 +5,14 @@
 
 namespace trinity::core
 {
+    enum class ReadinessProfile : uint8_t
+    {
+        LegacyComplete,
+        Tu201KnownCompatible,
+    };
+
+    ReadinessProfile ReadinessProfileForRevision(uint16_t revision);
+
     using ReadinessProbe = std::function<bool()>;
     using ReadinessClock = std::function<uint64_t()>;
     using ReadinessPause = std::function<void(uint32_t)>;

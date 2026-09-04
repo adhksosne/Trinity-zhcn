@@ -1,5 +1,6 @@
 #include "mod.h"
 #include <MinHook.h>
+#include <iterator>
 #include "logger.h"
 #include "settings.h"
 #include "state.h"
@@ -28,10 +29,19 @@ namespace
     {
         using namespace trinity::game;
 
-        // One unique sentinel per independently failing gameplay area from the
-        // TU 2.00.02 startup regression. Waiting for the whole set prevents a
-        // partially materialised image from permanently disabling later hooks.
-        const char* const required[] = {
+        // PE 2760 removed several TU 2.00.02 functions. Waiting for those old
+        // signatures would guarantee a three-minute timeout, so use only the
+        // independently confirmed 2.01.00 sentinels on that revision.
+        const char* const currentRequired[] = {
+            kSig_DamageApply_Alt,
+            kSig_CombatTimingEval,
+            kSig_MoveUpdate,
+            kSig_InvGetItemQty,
+            kSig_EvaluateCrimeWantedState,
+            kSig_TodEngineGlobal,
+            kSig_WeatherRain,
+        };
+        const char* const legacyRequired[] = {
             kCharMgrAnchors[0].sig,
             kSig_StatCommit,
             kSig_DamageApply_Alt,
@@ -47,11 +57,18 @@ namespace
             kSig_EquipEffectRefresh,
         };
 
+        const auto profile = trinity::core::ReadinessProfileForRevision(
+            trinity::core::GetGameVersion().revision);
+        const char* const* required = profile == trinity::core::ReadinessProfile::Tu201KnownCompatible
+            ? currentRequired : legacyRequired;
+        const size_t requiredCount = profile == trinity::core::ReadinessProfile::Tu201KnownCompatible
+            ? std::size(currentRequired) : std::size(legacyRequired);
+
         // Startup probing only needs presence. The actual installers retain
         // their stricter uniqueness/consensus checks. Stopping at the first
         // hit keeps polling light while the packed image is materialising.
-        for (const char* sig : required)
-            if (!trinity::mem::FindPattern(sig))
+        for (size_t i = 0; i < requiredCount; ++i)
+            if (!trinity::mem::FindPattern(required[i]))
                 return false;
         return true;
     }
@@ -90,12 +107,12 @@ namespace trinity
             return;
         }
 
-        // TU 2.00.02 now materialises large gameplay-code regions after the
+        // Modern builds materialise large gameplay-code regions after the
         // ASI loader starts us. A single early scan therefore produced dozens
         // of false NOT FOUND results even though the exact AOBs appeared a few
         // seconds later. Keep the render hook responsive and wait on this
         // worker thread until every gameplay subsystem is actually scannable.
-        LOG("Waiting for TU 2.00.02 gameplay code to become ready...");
+        LOG("Waiting for %s gameplay code to become ready...", core::GetGameVersionDisplay());
         const bool codeReady = core::WaitForReadiness(
             &GameplayCodeReady,
             [] { return GetTickCount64(); },
