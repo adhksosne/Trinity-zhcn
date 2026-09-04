@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cstring>
+#include <mutex>
 #include <algorithm>
 #include <windows.h>
 #include <MinHook.h>
@@ -38,9 +39,13 @@ namespace trinity::game
 
         // Tracks last known trust value per record key to scale trust gains accurately
         std::unordered_map<uint32_t, int64_t> s_lastTrustMap;
+        // Guard s_lastTrustMap against concurrent access from the game/actor
+        // threads that may call the trust setters while we read-modify-write.
+        std::mutex s_trustMutex;
 
         void ApplyTrustMultiplierToRecord(void* record, float mult, const char* srcName)
         {
+            std::lock_guard<std::mutex> lock(s_trustMutex);
             if (!Player::Ready() || mult <= 1.0f) return;
 
             const uintptr_t r = reinterpret_cast<uintptr_t>(record);
