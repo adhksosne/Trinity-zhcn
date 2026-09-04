@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 #include <vector>
 
 #include <Windows.h>
@@ -3044,11 +3045,29 @@ namespace trinity::gui
 
         bool save = false;
 
+        // Menus --- System -------------------------------------------------
+        // Debounce the Menu Scale font-atlas rebuild: dragging the slider
+        // previews the scale live via SetScale but only rebuilds fonts once,
+        // after the drag has been idle for 300ms.
+        static ULONGLONG s_lastScaleChange = 0;
+        static float     s_appliedScale    = st.menuScale;
+
         if (ui::FloatOption(LOC("Menu Scale"), &st.menuScale, 0.5f, 2.5f, 0.1f, 1.0f, "%.1fx",
                             LOC("Increases or decreases the size of the entire mod menu.")))
         {
             save = true;
-            ui::g_needFontRebuild = true;
+            s_lastScaleChange = GetTickCount64();
+            ui::SetScale(st.menuScale);
+        }
+
+        if (s_lastScaleChange != 0 && GetTickCount64() - s_lastScaleChange > 300)
+        {
+            s_lastScaleChange = 0;
+            if (fabsf(s_appliedScale - st.menuScale) > 0.01f)
+            {
+                s_appliedScale = st.menuScale;
+                ui::g_needFontRebuild = true;
+            }
         }
 
         save |= ui::Toggle(LOC("Show Item Tooltip"), &st.showItemTooltip,

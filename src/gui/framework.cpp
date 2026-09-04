@@ -72,6 +72,14 @@ namespace trinity::ui
     ImFont*  g_fontBold  = nullptr;
     float    g_scale     = 1.0f;
     bool     g_needFontRebuild = false;
+
+    // Immediate preview scale (no font-atlas rebuild). Dragging Menu Scale
+    // updates g_scale live so the layout responds; the atlas is rebuilt once,
+    // debounced, after the drag settles (see menu.cpp).
+    void SetScale(float scale)
+    {
+        g_scale = scale < 0.5f ? 0.5f : (scale > 3.0f ? 3.0f : scale);
+    }
     float    g_x = 0.0f, g_y = 0.0f, g_width = 0.0f, g_listTop = 0.0f, g_menuTop = 0.0f;
     int      g_rowIndex  = 0;
     char     g_selectedDesc[256] = {};
