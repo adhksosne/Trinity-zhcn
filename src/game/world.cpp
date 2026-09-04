@@ -6,6 +6,8 @@
 #include <initializer_list>
 
 #include "offsets.h"
+#include "player.h"
+#include "inventory.h"
 #include "../mem/scanner.h"
 #include "../mem/safe_memory.h"
 #include "../mem/hooks.h"
@@ -588,6 +590,28 @@ namespace trinity::game
     {
         const State& st = State::Get();
 
+        // Upkeep No Bounty state: apply once the player is in world, and
+        // refresh across map / character loads (the menu toggle goes through
+        // here too, so it works even when toggled before the world is ready).
+        static int   s_lastNoBounty    = -1;
+        static bool  s_lastPlayerReady = false;
+        const bool   curReady   = Player::Ready();
+        const int    curNoBounty = st.noBounty ? 1 : 0;
+        if (curReady)
+        {
+            if (curNoBounty != s_lastNoBounty || !s_lastPlayerReady)
+            {
+                s_lastNoBounty    = curNoBounty;
+                s_lastPlayerReady = true;
+                game::Inventory::SetNoBounty(st.noBounty);
+            }
+        }
+        else if (s_lastPlayerReady)
+        {
+            // Left the world: note it so re-entering re-applies cleanly.
+            s_lastPlayerReady = false;
+            s_lastNoBounty    = -1;
+        }
 
         // Freeze Time of Day: the field-time tick hook (hkFieldTimeTick) holds
         // the NUMERIC clock, but the visible SUN rides the render manager's own
