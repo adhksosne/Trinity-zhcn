@@ -1,4 +1,5 @@
 #include "inventory.h"
+#include "inventory_logic.h"
 
 #include <Windows.h>
 #include <atomic>
@@ -27,8 +28,8 @@
 #include "../core/logger.h"
 #include "../core/text.h"
 #include "../core/state.h"
-#include "../core/version_detect.h"
 #include "../core/version_mapping.h"
+#include "../core/version_detect.h"
 
 namespace trinity::game
 {
@@ -80,6 +81,8 @@ namespace trinity::game
         using ItemValueCtor_t   = void*(__fastcall*)(void* itemVal, uint16_t* typeId, int64_t qty);
         using CommitPlacement_t = void*(__fastcall*)(void* holder, int* err, void* unused,
                                                      void* placement, uint16_t slotIdx);
+        using CommitPlacement201_t = void*(__fastcall*)(void* holder, int* err,
+                                                        void* placement, uint16_t slotIdx);
         using FreePlacements_t  = void(__fastcall*)(void* vec);
         using ItemValueDtor_t   = void(__fastcall*)(void* itemVal);
         GetItemQty_t      oGetItemQty      = nullptr;
@@ -90,6 +93,7 @@ namespace trinity::game
         SetExpandSlots_t  oSetExpandSlots  = nullptr;
         ItemValueCtor_t   oItemValueCtor   = nullptr;
         CommitPlacement_t oCommitPlacement = nullptr;
+        CommitPlacement201_t oCommitPlacement201 = nullptr;
         FreePlacements_t  oFreePlacements  = nullptr;
         ItemValueDtor_t   oItemValueDtor   = nullptr;
         void*          g_qtyTarget   = nullptr;
@@ -1194,11 +1198,21 @@ namespace trinity::game
             return HolderForContainer(container);
         }
 
+        bool IsLiveCharacter(uintptr_t c);
+        uintptr_t CurrentHolder(); // defined below; used by ServerHolder()
+
         // The client inventory CONTAINER (one step short of the holder): core
         // global -> +0x30 -> +0x50. Used to tell the client container apart
         // from the server one in the holder-insert hook.
         uintptr_t ResolveClientContainer()
         {
+            const uintptr_t h = g_holder.load(std::memory_order_relaxed);
+            if (h >= kMinPointer)
+            {
+                uintptr_t owner = 0;
+                if (ReadPtr(h + 8, &owner) && IsLiveCharacter(owner))
+                    return owner;
+            }
             if (!g_coreGlobal) return 0;
             uintptr_t g = 0, mid = 0, container = 0;
             if (!ReadPtr(g_coreGlobal, &g) || g < kMinPointer) return 0;
@@ -1206,8 +1220,6 @@ namespace trinity::game
             if (!ReadPtr(mid + kOff_Mid_Container, &container) || container < kMinPointer) return 0;
             return container;
         }
-
-        uintptr_t CurrentHolder(); // defined below; used by ServerHolder()
         bool ApplySlotCapToHolder(uintptr_t holder, bool enable, uint16_t value);
 
         // Bucket count of a holder, or 0 if it does not read back sanely. Used
@@ -1279,7 +1291,8 @@ namespace trinity::game
             uintptr_t tlsArray = 0, tls = 0;
             if (!RawReadPtr(teb + kOff_Teb_TlsPointer, &tlsArray) || !tlsArray) return 0;
             if (!RawReadPtr(tlsArray, &tls) || !tls) return 0;
-            const uintptr_t addr = tls + kTls_RealmFlag;
+            const uintptr_t addr = tls +
+                core::RealmFlagOffsetForRevision(core::GetGameVersion().revision);
             uint8_t v = 0;
             if (!RawRead8(addr, &v)) return 0;
             if (outVal) *outVal = v;
@@ -1534,17 +1547,23 @@ namespace trinity::game
             g_candCount.store(keep, std::memory_order_release);
         }
 
-        void NoteContainer(void* container)
+        void NoteContainer(void* container, void* knownHolder = nullptr)
         {
             const uintptr_t c = reinterpret_cast<uintptr_t>(container);
-            if (c < kMinPointer || !oGetHolder || !g_candLockInit) return;
+            if (c < kMinPointer || !g_candLockInit) return;
 
-            // Resolving a container mid-construction can fault - never let that
-            // take the process down (this runs during load, by definition).
-            void* h = nullptr;
-            __try { h = oGetHolder(container); }
-            __except (EXCEPTION_EXECUTE_HANDLER) { h = nullptr; }
-            if (reinterpret_cast<uintptr_t>(h) < kMinPointer) return;
+            // TU 2.01's transaction commit already supplies the authoritative
+            // holder in rcx and its container at [holder+8]. Preserve that
+            // exact pair; resolving the container again can return a different
+            // realm's holder and was why server capture stayed empty.
+            void* h = knownHolder;
+            if (reinterpret_cast<uintptr_t>(h) < kMinPointer && oGetHolder)
+            {
+                __try { h = oGetHolder(container); }
+                __except (EXCEPTION_EXECUTE_HANDLER) { h = nullptr; }
+            }
+            const uintptr_t holder = reinterpret_cast<uintptr_t>(h);
+            if (holder < kMinPointer || !HolderLooksValid(holder)) return;
 
             const ULONGLONG now = GetTickCount64();
             EnterCriticalSection(&g_candLock);
@@ -1560,10 +1579,14 @@ namespace trinity::game
             if (at < 0 && cnt < kMaxCandidates) at = cnt;
             if (at >= 0)
             {
+                const bool isNewPair = at >= cnt || g_cand[at].holder != holder;
                 g_cand[at].container = c;
-                g_cand[at].holder    = reinterpret_cast<uintptr_t>(h);
+                g_cand[at].holder    = holder;
                 g_cand[at].tick      = now;
                 if (at >= cnt) g_candCount.store(at + 1, std::memory_order_release); // publish last
+                if (isNewPair)
+                    LOG("inventory: captured transaction holder=%p container=%p.",
+                        reinterpret_cast<void*>(holder), reinterpret_cast<void*>(c));
             }
             LeaveCriticalSection(&g_candLock);
         }
@@ -1589,7 +1612,7 @@ namespace trinity::game
             __try
             {
                 if (holder && ReadPtr(reinterpret_cast<uintptr_t>(holder) + 8, &container))
-                    NoteContainer(reinterpret_cast<void*>(container));
+                    NoteContainer(reinterpret_cast<void*>(container), holder);
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
             g_commitActive.store(true, std::memory_order_release);
@@ -2056,14 +2079,22 @@ namespace trinity::game
         }
         if (!oItemValueCtor)
         {
-            LOG("inventory: using synthetic TrItemValue constructor for cross-version compatibility.");
+            LOG_WARN("inventory: native TrItemValue constructor unavailable - Add Item will be refused.");
         }
 
-        const uintptr_t commitAddr = mem::FindPattern(kSig_InvCommitPlacement);
-        const uintptr_t freeAddr   = mem::FindPattern(kSig_InvFreePlacements);
+        const uintptr_t commitAddr = mem::FindPattern(
+            revision == 2760 ? kSig_InvCommitPlacement201 : kSig_InvCommitPlacement);
+        const uintptr_t freeAddr   = mem::FindPattern(
+            revision == 2760 ? kSig_InvFreePlacements201 : kSig_InvFreePlacements);
         const uintptr_t dtorAddr   = mem::FindPattern(kSig_TrItemValueDtor);
 
-        if (commitAddr) oCommitPlacement = reinterpret_cast<CommitPlacement_t>(commitAddr);
+        if (commitAddr)
+        {
+            if (revision == 2760)
+                oCommitPlacement201 = reinterpret_cast<CommitPlacement201_t>(commitAddr);
+            else
+                oCommitPlacement = reinterpret_cast<CommitPlacement_t>(commitAddr);
+        }
         if (freeAddr)   oFreePlacements  = reinterpret_cast<FreePlacements_t>(freeAddr);
         if (dtorAddr)   oItemValueDtor   = reinterpret_cast<ItemValueDtor_t>(dtorAddr);
         // The TEB lookup for the realm flag. Deliberately NtQueryInformationThread
@@ -2073,12 +2104,6 @@ namespace trinity::game
         if (const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll"))
             oNtQueryInfoThread = reinterpret_cast<NtQueryInformationThread_t>(
                 GetProcAddress(ntdll, "NtQueryInformationThread"));
-        if (!oCommitPlacement || !oFreePlacements || !oNtQueryInfoThread)
-            LOG_WARN("inventory: add-item path incomplete (commit=%d free=%d teb=%d)"
-                     " - Add Item will be refused.",
-                     oCommitPlacement ? 1 : 0, oFreePlacements ? 1 : 0,
-                     oNtQueryInfoThread ? 1 : 0);
-
         if (!g_candLockInit)
         {
             InitializeCriticalSection(&g_candLock);
@@ -2099,9 +2124,16 @@ namespace trinity::game
         // hook cannot be installed but the address resolves, fall back to
         // call-only: the toggle still applies from Tick(), it just re-fights
         // the engine's stamps (the old, racy behaviour).
-        if (!mem::InstallHook("inventory: slot-expansion setter", kSig_InvSetExpandSlots,
-                              "Slot Size will not apply",
-                              &hkSetExpandSlots, &oSetExpandSlots, &g_expandTarget, 4))
+        if (revision == 2760)
+        {
+            // TU 2.01 removed the old five-argument setter ABI.  Apply the
+            // complete bucket state every game tick instead; this updates the
+            // expansion, delta, and derived-cap fields on both realms.
+            LOG_OK("inventory: TU 2.01 continuous slot-expansion guard active.");
+        }
+        else if (!mem::InstallHook("inventory: slot-expansion setter", kSig_InvSetExpandSlots,
+                                   "Slot Size will not apply",
+                                   &hkSetExpandSlots, &oSetExpandSlots, &g_expandTarget, 4))
         {
             const uintptr_t expandAddr = mem::FindPattern(kSig_InvSetExpandSlots);
             if (expandAddr)
@@ -2136,13 +2168,35 @@ namespace trinity::game
 
         // Secondary capture path: fires on a real add/drop/buy, not at load.
         // Catches containers that only appear later (e.g. character swap).
-        if (!mem::InstallHook("inventory: holder-insert", kSig_InvHolderInsert, nullptr,
-                              &hkHolderInsert, &oHolderInsert, &g_insTarget, 2))
+        if (revision == 2760)
+        {
+            mem::InstallHook("inventory: TU 2.01 holder-insert", kSig_InvHolderInsert201,
+                             "Add Item will be refused and server holder capture is limited",
+                             &hkHolderInsert, &oHolderInsert, &g_insTarget, 2);
+        }
+        else if (!mem::InstallHook("inventory: holder-insert", kSig_InvHolderInsert, nullptr,
+                                   &hkHolderInsert, &oHolderInsert, &g_insTarget, 2))
         {
             mem::InstallHook("inventory: holder-insert legacy", kSig_InvHolderInsert_Legacy,
                              "server holder relies on the commit hook alone",
                              &hkHolderInsert, &oHolderInsert, &g_insTarget, 2);
         }
+
+        const bool addItemReady = oItemValueCtor && oHolderInsert &&
+            (oCommitPlacement || oCommitPlacement201) && oFreePlacements && oNtQueryInfoThread;
+        if (addItemReady)
+            LOG_OK("inventory: native Add Item path ready (ctor=%p planner=%p commit=%p free=%p).",
+                   reinterpret_cast<void*>(oItemValueCtor), reinterpret_cast<void*>(oHolderInsert),
+                   reinterpret_cast<void*>(oCommitPlacement201 ?
+                       reinterpret_cast<uintptr_t>(oCommitPlacement201) :
+                       reinterpret_cast<uintptr_t>(oCommitPlacement)),
+                   reinterpret_cast<void*>(oFreePlacements));
+        else
+            LOG_WARN("inventory: add-item path incomplete (ctor=%d planner=%d commit=%d free=%d teb=%d)"
+                     " - Add Item will be refused.",
+                     oItemValueCtor ? 1 : 0, oHolderInsert ? 1 : 0,
+                     (oCommitPlacement || oCommitPlacement201) ? 1 : 0,
+                     oFreePlacements ? 1 : 0, oNtQueryInfoThread ? 1 : 0);
 
         // Durable container walk (optional but preferred - without it the
         // list only appears once the game happens to query an item count,
@@ -2693,7 +2747,7 @@ namespace trinity::game
         // Free-Space Gate to reject all vendor purchases. See XeTrinityz-reference.
         bool ApplySlotCapToHolder(uintptr_t holder, bool enable, uint16_t value)
         {
-            if (!oSetExpandSlots) return false;
+            if (!oSetExpandSlots && core::GetGameVersion().revision != 2760) return false;
             if (!HolderLooksValid(holder)) return false;
             uintptr_t buckets = 0;
             uint32_t  bcount  = 0;
@@ -3233,14 +3287,30 @@ namespace trinity::game
     uintptr_t Inventory::ClientCharacterAddr()
     {
         const uintptr_t c = ResolveClientContainer();
-        return IsLiveCharacter(c) ? c : 0;
+        if (IsLiveCharacter(c)) return c;
+        const uintptr_t h = CurrentHolder();
+        if (h)
+        {
+            uintptr_t owner = 0;
+            if (ReadPtr(h + 8, &owner) && IsLiveCharacter(owner))
+                return owner;
+        }
+        return 0;
     }
 
     uintptr_t Inventory::ServerCharacterAddr()
     {
         ServerHolder(); // resolves/re-validates g_serverContainer as a side effect
         const uintptr_t c = g_serverContainer.load(std::memory_order_acquire);
-        return IsLiveCharacter(c) ? c : 0;
+        if (IsLiveCharacter(c)) return c;
+        const uintptr_t h = ServerHolder();
+        if (h)
+        {
+            uintptr_t owner = 0;
+            if (ReadPtr(h + 8, &owner) && IsLiveCharacter(owner))
+                return owner;
+        }
+        return 0;
     }
 
     // Identify character identity from a raw EQUIP COMPONENT's equipped items.
@@ -3271,7 +3341,14 @@ namespace trinity::game
         uint32_t count = 0;
         uintptr_t stride = 0xD0;
 
-        if (ReadPtr(comp + 0x80, &desc) && desc >= kMinPointer &&
+        // TU 2.01+ (+0x90) Priority
+        if (ReadPtr(comp + 0x90, &desc) && desc >= kMinPointer &&
+            ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
+            Read32(desc + kOff_EquipTable_Count, &count) && count >= 1 && count <= 64)
+        {
+            stride = 0xD0;
+        }
+        else if (ReadPtr(comp + 0x80, &desc) && desc >= kMinPointer &&
             ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
             Read32(desc + kOff_EquipTable_Count, &count) && count >= 1 && count <= 64)
         {
@@ -3768,8 +3845,12 @@ namespace trinity::game
                         const uint16_t slotIdx =
                             *reinterpret_cast<uint16_t*>(p + slotIdxOffset);
                         int err2 = 0;
-                        oCommitPlacement(reinterpret_cast<void*>(holder), &err2, nullptr,
-                                         reinterpret_cast<void*>(p), slotIdx);
+                        if (oCommitPlacement201)
+                            oCommitPlacement201(reinterpret_cast<void*>(holder), &err2,
+                                                reinterpret_cast<void*>(p), slotIdx);
+                        else
+                            oCommitPlacement(reinterpret_cast<void*>(holder), &err2, nullptr,
+                                             reinterpret_cast<void*>(p), slotIdx);
                         if (err2 == 0) ++committed;
                         else if (!firstErr2) firstErr2 = err2;
                     }
@@ -3883,20 +3964,22 @@ namespace trinity::game
         // the server mirror then the client one.
         bool CommitAdd(uint16_t typeId, int64_t qty)
         {
-            const bool ready = oHolderInsert && oCommitPlacement &&
+            const bool ready = oItemValueCtor && oHolderInsert &&
+                               (oCommitPlacement || oCommitPlacement201) &&
                                oFreePlacements && oNtQueryInfoThread;
             uintptr_t def = 0;
             const bool haveDef = DefForRow(g_itemTableGlobal, typeId, &def);
             const uintptr_t clientH = CurrentHolder();
             uintptr_t serverH = ServerHolder();
-            if (!ready || !haveDef || !clientH)
+            if (!CanCommitAuthoritativeAdd(ready, haveDef, clientH, serverH))
             {
-                LOG_WARN("inventory: add item %u x%lld - not ready (ready=%d client=%p server=%p def=%p ctor=%d ins=%d commit=%d free=%d teb=%d)",
+                LOG_WARN("inventory: add item %u x%lld refused - authoritative server holder unavailable (ready=%d client=%p server=%p def=%p ctor=%d ins=%d commit=%d free=%d teb=%d)",
                          typeId, static_cast<long long>(qty),
                          ready ? 1 : 0,
                          reinterpret_cast<void*>(clientH), reinterpret_cast<void*>(serverH),
                          reinterpret_cast<void*>(def),
-                         oItemValueCtor ? 1 : 0, oHolderInsert ? 1 : 0, oCommitPlacement ? 1 : 0,
+                         oItemValueCtor ? 1 : 0, oHolderInsert ? 1 : 0,
+                         (oCommitPlacement || oCommitPlacement201) ? 1 : 0,
                          oFreePlacements ? 1 : 0, oNtQueryInfoThread ? 1 : 0);
                 return false;
             }
@@ -3911,7 +3994,7 @@ namespace trinity::game
             }
 
             // Instance ID allocation
-            uintptr_t authorityH = (serverH && serverH != clientH) ? serverH : clientH;
+            uintptr_t authorityH = serverH;
             uintptr_t serverC = 0;
             if (!ReadPtr(authorityH + kOff_InvHolder_Container, &serverC) || serverC < kMinPointer)
             {
@@ -3952,10 +4035,8 @@ namespace trinity::game
 
             // Server first if available and distinct, then client mirror
             bool okServer = false;
-            if (serverH && serverH != clientH)
-            {
-                okServer = AddIntoHolder(serverH, /*serverRealm=*/true,  typeId, qty, id, def);
-            }
+            bool okClient = false;
+            okServer = AddIntoHolder(serverH, /*serverRealm=*/true, typeId, qty, id, def);
             if (!okServer)
             {
                 Candidate snap[kMaxCandidates] = {};
@@ -3975,9 +4056,12 @@ namespace trinity::game
                     }
                 }
             }
-            const bool okClient = AddIntoHolder(clientH, /*serverRealm=*/false, typeId, qty, id, def);
+            // Never create a client-only mirror. If authority rejects the
+            // transaction, leave the visible inventory untouched.
+            if (okServer)
+                okClient = AddIntoHolder(clientH, /*serverRealm=*/false, typeId, qty, id, def);
 
-            if (okClient || okServer)
+            if (okServer)
             {
                 char itemName[64] = "";
                 if (!DisplayNameForType(typeId, itemName, sizeof(itemName)))

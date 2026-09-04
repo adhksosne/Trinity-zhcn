@@ -68,10 +68,12 @@ add_library(Trinity SHARED
     src/game/player.cpp
     src/game/teleport.cpp
     src/game/inventory.cpp
+    src/game/inventory_logic.cpp
     src/game/world.cpp
     src/game/dye.cpp
     src/game/equipment.cpp
     src/game/friendly.cpp
+    src/game/friendly_logic.cpp
     ${EXTENDED_SOURCES}
     src/game/item_names.cpp
     src/game/pak.cpp
@@ -119,6 +121,8 @@ if(BUILD_TESTING)
         tests/readiness_tests.cpp
         src/core/readiness.cpp
         src/core/version_mapping.cpp
+        src/game/friendly_logic.cpp
+        src/game/inventory_logic.cpp
         src/mem/section_filter.cpp
     )
     target_include_directories(TrinityReadinessTests PRIVATE src)

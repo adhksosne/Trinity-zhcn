@@ -2,12 +2,28 @@
 #include "../src/core/version_mapping.h"
 #include "../src/game/crime_hook_contract.h"
 #include "../src/game/inventory_hook_contract.h"
+#include "../src/game/inventory_logic.h"
+#include "../src/game/offsets.h"
 #include "../src/mem/section_filter.h"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <type_traits>
+
+namespace trinity::core
+{
+    uintptr_t RealmFlagOffsetForRevision(uint16_t revision);
+}
+
+namespace trinity::game
+{
+    int64_t ScaleTrustValue(int64_t previous, bool hasPrevious,
+                            int64_t incoming, float multiplier, bool enabled);
+    bool SelectTrustBaseline(int64_t stored, bool hasStored,
+                             int64_t cached, bool hasCached,
+                             int64_t* outBaseline);
+}
 
 static_assert(std::is_same_v<trinity::game::RegisterCrimeEvent_t,
                              void(__fastcall*)(void*, const char*, void*, void*)>,
@@ -125,6 +141,61 @@ namespace
                "pre-2.01 inventory-root signature must retain its legacy mov offset");
     }
 
+    void RealmFlagOffsetTracksCurrentTlsLayout()
+    {
+        using trinity::core::RealmFlagOffsetForRevision;
+
+        Expect(RealmFlagOffsetForRevision(2760) == 0x1FD,
+               "TU 2.01 realm selection must use the new TLS byte at +0x1FD");
+        Expect(RealmFlagOffsetForRevision(2692) == 0x1F2,
+               "pre-2.01 builds must retain the legacy TLS byte at +0x1F2");
+    }
+
+    void TrustScalingUsesTheFirstPositiveGain()
+    {
+        using trinity::game::ScaleTrustValue;
+
+        Expect(ScaleTrustValue(0, false, 5, 25.0f, true) == 100,
+               "a first +5 trust event at x25 must immediately reach 100");
+        Expect(ScaleTrustValue(20, true, 25, 3.0f, true) == 35,
+               "an existing +5 trust event at x3 must add 15 to the old value");
+        Expect(ScaleTrustValue(20, true, 15, 25.0f, true) == 15,
+               "trust losses must pass through without multiplication");
+        Expect(ScaleTrustValue(20, true, 25, 25.0f, false) == 25,
+               "disabled trust scaling must leave the incoming value unchanged");
+    }
+
+    void CachedTrustBaselineWinsOverAliasedLiveRecord()
+    {
+        using trinity::game::SelectTrustBaseline;
+
+        int64_t baseline = -1;
+        Expect(SelectTrustBaseline(5, true, 0, true, &baseline) && baseline == 0,
+               "cached pre-write trust must win when the live source aliases the destination");
+        Expect(SelectTrustBaseline(20, true, 0, false, &baseline) && baseline == 20,
+               "live-map trust must seed the cache when no prior observation exists");
+        Expect(!SelectTrustBaseline(0, false, 0, false, &baseline),
+               "missing cache and live-map state must report no baseline");
+    }
+
+    void AddItemRequiresAnAuthoritativeServerHolder()
+    {
+        using trinity::game::CanCommitAuthoritativeAdd;
+
+        Expect(!CanCommitAuthoritativeAdd(true, true, 0x1000, 0),
+               "client-only add must fail closed instead of creating a ghost item");
+        Expect(!CanCommitAuthoritativeAdd(true, true, 0x1000, 0x1000),
+               "one holder cannot stand in for both client and server authority");
+        Expect(CanCommitAuthoritativeAdd(true, true, 0x1000, 0x2000),
+               "distinct client and server holders may commit an authoritative add");
+    }
+
+    void TrustRecordUsesTheCopiedValueField()
+    {
+        Expect(trinity::game::kOff_FriendlyRec_Value == 0x20,
+               "TU 2.01 trust must read the value copied from record+0x20");
+    }
+
     void ExecutableDebugSectionIsScanned()
     {
         using trinity::mem::ShouldScanSection;
@@ -147,6 +218,11 @@ int main()
     MovementOwnerOffsetTracksCurrentLayout();
     CurrentUpdateRejectsLegacyFuzzySignatures();
     InventoryRootAnchorTracksCurrentInstructionLayout();
+    RealmFlagOffsetTracksCurrentTlsLayout();
+    TrustScalingUsesTheFirstPositiveGain();
+    CachedTrustBaselineWinsOverAliasedLiveRecord();
+    AddItemRequiresAnAuthoritativeServerHolder();
+    TrustRecordUsesTheCopiedValueField();
     ExecutableDebugSectionIsScanned();
     if (failures == 0)
         std::puts("readiness tests passed");

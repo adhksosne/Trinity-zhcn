@@ -28,4 +28,9 @@ namespace trinity::core
     {
         return revision == 2760 ? 0 : 0x15;
     }
+
+    uintptr_t RealmFlagOffsetForRevision(uint16_t revision)
+    {
+        return revision == 2760 ? 0x1FD : 0x1F2;
+    }
 }

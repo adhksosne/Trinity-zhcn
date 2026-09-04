@@ -15,4 +15,7 @@ namespace trinity::core
     bool MayUseLegacyFuzzySignaturesForRevision(uint16_t revision);
 
     uintptr_t InventoryCoreGlobalMovOffsetForRevision(uint16_t revision);
+
+    // Per-thread client/server realm selector inside the engine TLS block.
+    uintptr_t RealmFlagOffsetForRevision(uint16_t revision);
 }

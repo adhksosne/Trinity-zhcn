@@ -18,6 +18,7 @@
 #include "../mem/hooks.h"
 #include "../core/logger.h"
 #include "../core/state.h"
+#include "../core/version_detect.h"
 
 namespace trinity::game
 {
@@ -890,9 +891,19 @@ namespace trinity::game
                     "Infinite Stamina / Infinite Spirit limited to the current-character fallback.");
         }
 
-        mem::InstallHook("player: stat-commit", kSig_StatCommit,
-                         "direct write guard unavailable; current-character pins remain active",
-                         &hkStatCommit, &oStatCommit, &g_commitTarget);
+        // TU 2.01 removed the old single stat-commit funnel.  The resolved
+        // character manager plus the per-frame entry pins are the current
+        // guard on this build; do not search/hook a stale ABI.
+        if (core::GetGameVersion().revision == 2760)
+        {
+            LOG_OK("player: TU 2.01 continuous stat-pin guard active (all resolved characters).");
+        }
+        else
+        {
+            mem::InstallHook("player: stat-commit", kSig_StatCommit,
+                             "direct write guard unavailable; current-character pins remain active",
+                             &hkStatCommit, &oStatCommit, &g_commitTarget);
+        }
 
         // DamageApply: try primary signature first, then Alt (TU 2.00 recompile shifted the prologue).
         if (!mem::InstallHook("player: damage-apply", kSig_DamageApply, "",

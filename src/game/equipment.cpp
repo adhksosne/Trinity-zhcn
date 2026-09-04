@@ -81,7 +81,24 @@ namespace trinity::game
             uintptr_t d = 0, a = 0;
             uint32_t c = 0;
 
-            // Modern TU 1.17+ table (+0x80) - Priority
+            // TU 2.01+ table (+0x90) - Priority
+            if (ReadPtr(comp + 0x90, &d) && d >= kMinPointer &&
+                ReadPtr(d + kOff_EquipTable_Array, &a) && a >= kMinPointer &&
+                Read32(d + kOff_EquipTable_Count, &c) && c >= 1 && c <= 64)
+            {
+                if (validateTable(a, c, 0xD0, 0xC8))
+                {
+                    out.desc = d;
+                    out.array = a;
+                    out.count = c;
+                    out.stride = 0xD0;
+                    out.tagOffset = 0xC8;
+                    out.valid = true;
+                    return out;
+                }
+            }
+
+            // Modern TU 1.17 - 2.00 table (+0x80)
             if (ReadPtr(comp + 0x80, &d) && d >= kMinPointer &&
                 ReadPtr(d + kOff_EquipTable_Array, &a) && a >= kMinPointer &&
                 Read32(d + kOff_EquipTable_Count, &c) && c >= 1 && c <= 64)
@@ -115,8 +132,8 @@ namespace trinity::game
                 }
             }
 
-            // Alternate table offsets (+0x50, +0x38, +0x40, +0x48, +0x60, +0x70)
-            const uintptr_t tableOffsets[] = { 0x50, 0x38, 0x40, 0x48, 0x60, 0x70 };
+            // Alternate table offsets (+0x90, +0x80, +0x50, +0x38, +0x40, +0x48, +0x60, +0x70)
+            const uintptr_t tableOffsets[] = { 0x90, 0x80, 0x50, 0x38, 0x40, 0x48, 0x60, 0x70 };
             for (uintptr_t tOff : tableOffsets)
             {
                 if (!ReadPtr(comp + tOff, &d) || d < kMinPointer) continue;
@@ -197,6 +214,14 @@ namespace trinity::game
             comp = FindEquipCompFromActor(actor);
             if (comp && CompValid(comp))
                 return comp;
+            // If actor is an owner object, inspect its inner actor (+0x68)
+            uintptr_t innerAct = 0;
+            if (ReadPtr(actor + kOff_Owner_Actor, &innerAct) && innerAct >= kMinPointer)
+            {
+                comp = FindEquipCompFromActor(innerAct);
+                if (comp && CompValid(comp))
+                    return comp;
+            }
             return 0;
         }
 
@@ -227,6 +252,18 @@ namespace trinity::game
                 {
                     const uintptr_t comp = CompForCharacter(liveChar);
                     if (comp) return comp;
+                }
+
+                // Fallback: resolve from live inventory holder's owner
+                const uintptr_t h = Inventory::ClientHolderAddr();
+                if (h)
+                {
+                    uintptr_t owner = 0;
+                    if (ReadPtr(h + 8, &owner) && owner >= kMinPointer)
+                    {
+                        const uintptr_t comp = CompForCharacter(owner);
+                        if (comp) return comp;
+                    }
                 }
 
                 const uintptr_t hooked = Dye::HookedClientComp();
