@@ -6,6 +6,8 @@
 #include <initializer_list>
 
 #include "offsets.h"
+#include "player.h"
+#include "inventory.h"
 #include "../mem/scanner.h"
 #include "../mem/safe_memory.h"
 #include "../mem/hooks.h"
@@ -20,17 +22,58 @@ namespace trinity::game
 
     namespace
     {
-        // Resolved addresses of the fixed-timestep override globals (BSS - zero
-        // in the static image, so found via the override block's RIP operands).
-        // Zero if the signature did not resolve, in which case Game Speed is
-        // inert (Tick no-ops).
-        uintptr_t g_flagAddr  = 0; // byte  byte_606B9CE : 1 forces the fixed step
-        uintptr_t g_valueAddr = 0; // float dword_615A4F0 : forced seconds-per-frame
+        // Reinterpret a float as its 32-bit pattern for a raw Write32.
+        uint32_t FloatBits(float f)
+        {
+            uint32_t bits = 0;
+            std::memcpy(&bits, &f, sizeof(bits));
+            return bits;
+        }
 
-        // Whether we currently hold the override on. Lets Tick clear the flag
-        // exactly once when the toggle is switched off, restoring the engine's
-        // own real-time delta without fighting the game every frame afterwards.
-        bool g_applied = false;
+        float Clamp(float v, float lo, float hi)
+        {
+            return v < lo ? lo : (v > hi ? hi : v);
+        }
+
+        // Native FrameTimerUpdate hook - controls true engine time scale multiplier
+        using FrameTimerUpdate_t = void(__fastcall*)(void* appMgr);
+        FrameTimerUpdate_t oFrameTimerUpdate = nullptr;
+        void* g_frameTimerUpdateTarget = nullptr;
+
+        void __fastcall hkFrameTimerUpdate(void* appMgr)
+        {
+            if (oFrameTimerUpdate)
+                oFrameTimerUpdate(appMgr);
+
+            if (!appMgr) return;
+
+            const State& st = State::Get();
+            if (st.gameSpeed && std::fabs(st.gameSpeedMult - 1.0f) > 0.01f)
+            {
+                __try
+                {
+                    uintptr_t app = reinterpret_cast<uintptr_t>(appMgr);
+                    uintptr_t timeStruct = 0;
+                    if (mem::ReadPtr(app + 0x60, &timeStruct) && timeStruct >= kMinPointer)
+                    {
+                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
+                        float dt = 0.0f;
+                        uint32_t bits = 0;
+                        if (mem::Read32(timeStruct + kOff_TimeStruct_Delta, &bits))
+                        {
+                            std::memcpy(&dt, &bits, sizeof(dt));
+                            if (dt > 0.0001f && dt < 1.0f)
+                            {
+                                const float newDt = dt * mult;
+                                mem::Write32(timeStruct + kOff_TimeStruct_Delta, FloatBits(newDt));
+                                mem::Write32(timeStruct + kOff_TimeStruct_ScaledDelta, FloatBits(newDt));
+                            }
+                        }
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
+        }
 
         // Master field-clock globals (client / server realm), each the base of
         // a 32-byte int32 time struct (day/hour/min/sec). Zero if the signature
@@ -75,19 +118,6 @@ namespace trinity::game
             if (State::Get().timeFrozen)
                 delta = 0.0f; // clock stops accruing; sun + numeric clock hold
             oFieldTimeTick(mgr, delta, d2);
-        }
-
-        // Reinterpret a float as its 32-bit pattern for a raw Write32.
-        uint32_t FloatBits(float f)
-        {
-            uint32_t bits = 0;
-            std::memcpy(&bits, &f, sizeof(bits));
-            return bits;
-        }
-
-        float Clamp(float v, float lo, float hi)
-        {
-            return v < lo ? lo : (v > hi ? hi : v);
         }
 
         bool ReadI32(uintptr_t addr, int* out)
@@ -422,30 +452,49 @@ namespace trinity::game
     {
         bool ok = true;
 
-        const uintptr_t m = mem::FindPattern(kSig_GameSpeed);
-        if (!m)
+        uintptr_t bodyAddr = mem::FindPattern(kSig_FrameTimerBody);
+        if (!bodyAddr)
+            bodyAddr = mem::FindPattern(kSig_FrameTimerBody_Pre201);
+        if (bodyAddr)
         {
-            LOG_ERR("world: game-speed signature NOT FOUND - Game Speed disabled.");
-            ok = false;
+            uintptr_t funcEntry = 0;
+            // Scan backwards up to 0x80 bytes for function prologue (48 8B C4)
+            for (uintptr_t p = bodyAddr - 0x10; p >= bodyAddr - 0x80; --p)
+            {
+                const uint8_t* b = reinterpret_cast<const uint8_t*>(p);
+                if (b[0] == 0x48 && b[1] == 0x8B && b[2] == 0xC4)
+                {
+                    funcEntry = p;
+                    break;
+                }
+            }
+
+            if (funcEntry)
+            {
+                g_frameTimerUpdateTarget = reinterpret_cast<void*>(funcEntry);
+                if (MH_CreateHook(g_frameTimerUpdateTarget, reinterpret_cast<void*>(&hkFrameTimerUpdate),
+                                  reinterpret_cast<void**>(&oFrameTimerUpdate)) == MH_OK &&
+                    MH_EnableHook(g_frameTimerUpdateTarget) == MH_OK)
+                {
+                    LOG_OK("world: FrameTimerUpdate hook installed @ 0x%p (true game time scale engine control).", g_frameTimerUpdateTarget);
+                }
+                else
+                {
+                    LOG_ERR("world: Failed to install FrameTimerUpdate hook.");
+                    g_frameTimerUpdateTarget = nullptr;
+                    ok = false;
+                }
+            }
+            else
+            {
+                LOG_ERR("world: FrameTimerUpdate prologue not found from body match.");
+                ok = false;
+            }
         }
         else
         {
-            if (mem::CountMatches(kSig_GameSpeed, 2) != 1)
-                LOG_WARN("world: game-speed signature ambiguous; using first match.");
-
-            // Flag: disp32 of `cmp cs:byte_606B9CE, 1` (an imm follows the disp,
-            // so resolve from the explicit disp/next-instr rather than ResolveRipAt).
-            g_flagAddr = mem::ResolveRip(m + kOff_GameSpeed_FlagDisp, m + kOff_GameSpeed_FlagEnd);
-            // Value: `vmovss xmm0, cs:dword_615A4F0` - a standard RIP instr (disp
-            // at its tail), so ResolveRipAt handles it.
-            g_valueAddr = mem::ResolveRipAt(m + kOff_GameSpeed_ValueVmovss, kLen_GameSpeed_Vmovss);
-
-            if (g_flagAddr < kMinPointer || g_valueAddr < kMinPointer)
-            {
-                LOG_ERR("world: game-speed globals resolved out of range - Game Speed disabled.");
-                g_flagAddr = g_valueAddr = 0;
-                ok = false;
-            }
+            LOG_ERR("world: FrameTimerBody signature not found - Game Speed disabled.");
+            ok = false;
         }
 
         // Time of Day resolves independently - Game Speed still works if this
@@ -461,10 +510,14 @@ namespace trinity::game
         // which holds the numeric clock)...
         // Independent of both the globals above and Game Speed - each can drift
         // without disabling the others.
-        if (!mem::InstallHook("world: field-time tick", kSig_FieldTimeTick,
-                              "Freeze Time of Day disabled", hkFieldTimeTick,
-                              &oFieldTimeTick, &g_fieldTimeTickTarget))
-            ok = false;
+        if (!mem::InstallHook("world: field-time tick", kSig_FieldTimeTick, "",
+                              hkFieldTimeTick, &oFieldTimeTick, &g_fieldTimeTickTarget))
+        {
+            if (!mem::InstallHook("world: field-time tick (pre-2.01)", kSig_FieldTimeTick_Pre201,
+                                  "Freeze Time of Day disabled", hkFieldTimeTick,
+                                  &oFieldTimeTick, &g_fieldTimeTickTarget))
+                ok = false;
+        }
 
         // ...and the render-manager clamp holds the visible SUN (the field-time
         // tick alone does not - the sun rides its own accumulator). Resolve the
@@ -505,16 +558,23 @@ namespace trinity::game
         mem::InstallHook("world: dust intensity", kSig_WeatherDust,
                          "Dust control disabled", hkGetDustIntensity,
                          &oGetDustIntensity, &g_dustIntensityTarget);
-        mem::InstallHook("world: wind pack", kSig_WindPack,
-                         "Cloud and Fog control disabled", hkWindPack,
-                         &oWindPack, &g_windPackTarget);
+        if (!mem::InstallHook("world: wind pack", kSig_WindPack, nullptr,
+                              hkWindPack, &oWindPack, &g_windPackTarget))
+        {
+            mem::InstallHook("world: wind pack (pre-2.01)", kSig_WindPack_Pre201,
+                             "Cloud and Fog control disabled", hkWindPack,
+                             &oWindPack, &g_windPackTarget);
+        }
 
         // Safe EnvManager pointer resolution for Atmosphere & Weather (Zero hooks)
         {
             const uintptr_t envSig = mem::FindPattern(kSig_EnvManager);
             if (envSig)
             {
-                g_pEnvManager = mem::ResolveRipAt(envSig + kOff_EnvManager_Mov, kLen_EnvManager_Mov);
+                // The `mov rcx, cs:<pEnvManager>` IS the first instruction of
+                // the match (7 bytes: opcode + disp32) - resolving from +3
+                // produced garbage pointers on TU 2.00.
+                g_pEnvManager = mem::ResolveRipAt(envSig, kLen_EnvManager_Mov);
                 if (g_pEnvManager >= kMinPointer)
                 {
                     LOG("world: safe EnvManager pointer resolved: 0x%llX", g_pEnvManager);
@@ -533,31 +593,28 @@ namespace trinity::game
     {
         const State& st = State::Get();
 
-        // Game Speed - only if its globals resolved; independent of the sun
-        // freeze below, so a Game Speed signature drift never disables Freeze.
-        if ((g_flagAddr && g_valueAddr) && st.gameSpeed)
-        {
-            // Forced frame delta = mult / 60: the engine's own fixed-timestep
-            // reference is the 60-FPS step (1/60 s), so 1.00x reproduces it and
-            // the multiplier scales sim time from there. Clamp both the factor
-            // (to the slider's range) and the resulting delta (defensively, so a
-            // bad value can never feed the sim an absurd timestep).
-            const float mult  = Clamp(st.gameSpeedMult, 0.1f, 5.0f);
-            const float delta = Clamp(mult / kGameSpeed_BaselineFps, 1.0e-5f, 1.0f);
+        // Upkeep No Bounty state (apply once Player is in world, and refresh across map loads)
+        static int s_lastNoBounty = -1;
+        static bool s_lastPlayerReady = false;
+        const bool curReady = Player::Ready();
+        const int curNoBounty = st.noBounty ? 1 : 0;
 
-            // Value first, then arm the flag, so the timing update never reads a
-            // stale delta on the frame we switch it on. Re-armed every tick so
-            // it self-heals if the game's capture path clears the flag.
-            Write32(g_valueAddr, FloatBits(delta));
-            Write8(g_flagAddr, 1);
-            g_applied = true;
-        }
-        else if (g_applied)
+        if (curReady)
         {
-            // Back to the engine's own measured real-time delta.
-            Write8(g_flagAddr, 0);
-            g_applied = false;
+            if (curNoBounty != s_lastNoBounty || !s_lastPlayerReady)
+            {
+                s_lastNoBounty = curNoBounty;
+                s_lastPlayerReady = true;
+                game::Inventory::SetNoBounty(st.noBounty);
+            }
         }
+        else if (s_lastPlayerReady)
+        {
+            s_lastPlayerReady = false;
+            s_lastNoBounty = -1;
+        }
+
+        // Game Speed is driven on the game thread inside hkFrameTimerUpdate seamlessly.
 
         // Freeze Time of Day: the field-time tick hook (hkFieldTimeTick) holds
         // the NUMERIC clock, but the visible SUN rides the render manager's own
@@ -686,10 +743,12 @@ namespace trinity::game
 
     void World::Remove()
     {
-        // Leave the game at normal speed on unload.
-        if (g_applied && g_flagAddr) Write8(g_flagAddr, 0);
-        g_applied  = false;
-        g_flagAddr = g_valueAddr = 0;
+        // Restore game speed hook
+        if (g_frameTimerUpdateTarget)
+        {
+            mem::RemoveHook(&g_frameTimerUpdateTarget);
+            oFrameTimerUpdate = nullptr;
+        }
 
         // Restore the render manager's time-of-day limits if we were holding
         // the sun, then forget the engine global.
@@ -723,7 +782,7 @@ namespace trinity::game
 
     bool World::Ready()
     {
-        return g_flagAddr >= kMinPointer && g_valueAddr >= kMinPointer;
+        return g_frameTimerUpdateTarget != nullptr;
     }
 
     bool World::TimeOfDayReady()

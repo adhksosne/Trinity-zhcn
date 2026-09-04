@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../game/equipment.h"
+
 namespace trinity::ui
 {
     // Menu shell: a tabbed, list-based menu custom-drawn on the ImGui draw
@@ -22,6 +24,8 @@ namespace trinity::ui
     // Loads fonts and sets the UI scale. Call once, right after
     // ImGui::CreateContext and before the first NewFrame.
     void InitStyle(float uiScale);
+    void SetScale(float scale);
+    void ResetNavRepeat();
     extern bool g_needFontRebuild;
 
     // Rising edge of the configured controller open combo on pad 0
@@ -83,4 +87,14 @@ namespace trinity::ui
     void Toast(const char* fmt, ...);
     void DrawToasts();
     bool ToastsActive();
+
+    // Side-panel tooltip helpers
+    void SetTooltipPreview(const char* name, const char* icon, const char* subtitle = nullptr,
+                           int refineLevel = -1, int durability = -1,
+                           int maxSockets = 0, int unlockedSockets = 0, int filledSockets = 0);
+    void SetEquipTooltip(const game::Equipment::SlotInfo& si);
+    void SetAbyssGearTooltip(const char* name, const char* icon, const char* buff);
+    void SetDyePreviewTooltip(const char* name, const char* icon, const char* subtitle,
+                              int activeZone, uint32_t activeRGB, int activeMaterial, int activeCondition,
+                              int totalZones, const uint32_t* zoneColors, const bool* zoneDyed);
 }
