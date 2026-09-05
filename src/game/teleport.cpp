@@ -1,4 +1,4 @@
-#include "teleport.h"
+﻿#include "teleport.h"
 
 #include <Windows.h>
 #include <TlHelp32.h>
@@ -33,6 +33,8 @@
 #include "../hooks/xinput_hook.h"
 #include "../core/logger.h"
 #include "../core/state.h"
+#include "../core/version_detect.h"
+#include "../core/version_mapping.h"
 
 namespace trinity::game
 {
@@ -145,7 +147,6 @@ namespace trinity::game
 
         alignas(8) std::atomic<uintptr_t> g_markerPlayer{0};
         std::atomic<uintptr_t> g_playerMoveOwner{0};
-        constexpr uintptr_t    kOff_MoveComp_MoveOwner = 0x298;
 
         std::array<CandidateSlot, kExpected_MarkerMatches> g_markerCandidates{};
         std::atomic<uint64_t> g_markerProtectFlag{0};
@@ -1424,10 +1425,10 @@ namespace trinity::game
             {
                 const uintptr_t player = g_playerMoveOwner.load(std::memory_order_relaxed);
                 uintptr_t owner = 0;
-                if (player && ReadPtr(comp + kOff_MoveComp_MoveOwner, &owner))
+                const uintptr_t moveOwnerOffset = core::MoveComponentOwnerOffsetForRevision(
+                    core::GetGameVersion().revision);
+                if (player >= kMinPointer && ReadPtr(comp + moveOwnerOffset, &owner))
                     isPlayer = (owner == player);
-                else if (!player)
-                    isPlayer = true; // Fallback before moveOwner first updates
             }
 
             // Automatic Safe Landing cushion after teleport
@@ -1480,7 +1481,6 @@ namespace trinity::game
             }
             if (isPlayer)
                 g_flightEngaged.store(flyingNow, std::memory_order_relaxed);
-
             // Ground locomotion: Super Run applies when player is on ground / not airborne flight
             if (isPlayer && st.superRun && !flyingNow && st.superRunMult != 1.0f && vel)
             {
@@ -1748,6 +1748,8 @@ namespace trinity::game
         // menu just stays empty (logged).
         uintptr_t travel = mem::FindPattern(kSig_TravelToNode);
         if (!travel)
+            travel = mem::FindPattern(kSig_TravelToNode_Pre201);
+        if (!travel)
             travel = mem::FindPattern(kSig_TravelToNode_Legacy);
 
         if (travel)
@@ -1776,8 +1778,12 @@ namespace trinity::game
 
         // Locomotion sub-step driver for Super Run (optional - Super Jump and
         // everything else still works without it).
-        mem::InstallHook("teleport: locomotion-stepper", kSig_LocoStepper, "Super Run disabled",
-                         &hkLocoStep, &oLocoStep, &g_locoStepTarget);
+        if (!mem::InstallHook("teleport: locomotion-stepper", kSig_LocoStepper, "",
+                              &hkLocoStep, &oLocoStep, &g_locoStepTarget))
+        {
+            mem::InstallHook("teleport: locomotion-stepper (pre-2.01)", kSig_LocoStepper_Pre201,
+                             "Super Run disabled", &hkLocoStep, &oLocoStep, &g_locoStepTarget);
+        }
 
         // Resolve the airborne (glide) mover footprint for Free Flight. If it
         // does not resolve, Free Flight is inert (ground jog untouched) while
@@ -2022,23 +2028,6 @@ namespace trinity::game
         g_pendingDestZ.store(destination.z, std::memory_order_relaxed);
         g_pendingMarkerTp.store(true, std::memory_order_release);
 
-        // Immediate application fallback
-        __try
-        {
-            if (moveOwner >= kMinPointer)
-            {
-                *reinterpret_cast<Vec3*>(moveOwner + kOff_Player_Dest0) = destination;
-                *reinterpret_cast<Vec3*>(moveOwner + kOff_Player_Dest1) = destination;
-                *reinterpret_cast<Vec3*>(moveOwner + 0xC0) = Vec3{ 0.0f, 0.0f, 0.0f };
-            }
-            if (markerPlayer >= kMinPointer && markerPlayer != moveOwner)
-            {
-                *reinterpret_cast<Vec3*>(markerPlayer + kOff_Player_Dest0) = destination;
-                *reinterpret_cast<Vec3*>(markerPlayer + kOff_Player_Dest1) = destination;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {}
-
         ClearActiveMarker();
         return MarkerStatus::Success;
     }
@@ -2061,22 +2050,6 @@ namespace trinity::game
         g_pendingDestY.store(destination.y, std::memory_order_relaxed);
         g_pendingDestZ.store(destination.z, std::memory_order_relaxed);
         g_pendingMarkerTp.store(true, std::memory_order_release);
-
-        __try
-        {
-            if (moveOwner >= kMinPointer)
-            {
-                *reinterpret_cast<Vec3*>(moveOwner + kOff_Player_Dest0) = destination;
-                *reinterpret_cast<Vec3*>(moveOwner + kOff_Player_Dest1) = destination;
-                *reinterpret_cast<Vec3*>(moveOwner + 0xC0) = Vec3{ 0.0f, 0.0f, 0.0f };
-            }
-            if (markerPlayer >= kMinPointer && markerPlayer != moveOwner)
-            {
-                *reinterpret_cast<Vec3*>(markerPlayer + kOff_Player_Dest0) = destination;
-                *reinterpret_cast<Vec3*>(markerPlayer + kOff_Player_Dest1) = destination;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {}
 
         return true;
     }

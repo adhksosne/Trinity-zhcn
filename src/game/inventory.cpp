@@ -1,4 +1,5 @@
 #include "inventory.h"
+#include "inventory_logic.h"
 
 #include <Windows.h>
 #include <atomic>
@@ -15,6 +16,8 @@
 #include <MinHook.h>
 
 #include "offsets.h"
+#include "crime_hook_contract.h"
+#include "inventory_hook_contract.h"
 #include "player.h"
 #include "equipment.h"
 #include "dye.h"
@@ -25,6 +28,7 @@
 #include "../core/logger.h"
 #include "../core/text.h"
 #include "../core/state.h"
+#include "../core/version_mapping.h"
 #include "../core/version_detect.h"
 
 namespace trinity::game
@@ -77,20 +81,25 @@ namespace trinity::game
         using ItemValueCtor_t   = void*(__fastcall*)(void* itemVal, uint16_t* typeId, int64_t qty);
         using CommitPlacement_t = void*(__fastcall*)(void* holder, int* err, void* unused,
                                                      void* placement, uint16_t slotIdx);
+        using CommitPlacement201_t = void*(__fastcall*)(void* holder, int* err,
+                                                        void* placement, uint16_t slotIdx);
         using FreePlacements_t  = void(__fastcall*)(void* vec);
         using ItemValueDtor_t   = void(__fastcall*)(void* itemVal);
         GetItemQty_t      oGetItemQty      = nullptr;
         GetHolder_t       oGetHolder       = nullptr;
         HolderInsert_t    oHolderInsert    = nullptr;
         Commit_t          oCommit          = nullptr;
+        InventoryCommit201_t oCommit201    = nullptr;
         SetExpandSlots_t  oSetExpandSlots  = nullptr;
         ItemValueCtor_t   oItemValueCtor   = nullptr;
         CommitPlacement_t oCommitPlacement = nullptr;
+        CommitPlacement201_t oCommitPlacement201 = nullptr;
         FreePlacements_t  oFreePlacements  = nullptr;
         ItemValueDtor_t   oItemValueDtor   = nullptr;
         void*          g_qtyTarget   = nullptr;
         void*          g_insTarget   = nullptr;
         void*          g_commitTarget = nullptr;
+        void*          g_commit201Target = nullptr;
         void*          g_expandTarget = nullptr;
 
         std::atomic<uintptr_t> g_holder{0};
@@ -669,159 +678,130 @@ namespace trinity::game
                 matchWord("Grindstone") || matchWord("Anvil") || matchWord("Scissors") || matchWord("Spade"))
                 return "Tools";
 
-            // 29. Ammunition
-            if (matchWord("Ammo") || matchWord("Arrow") || matchWord("Bolt") || matchWord("Bullet") || matchWord("Shell") ||
-                matchWord("Projectile") || matchWord("Cartridge") || matchWord("Pellet") || matchWord("Quiver"))
-                return "Ammunition";
-
-            // 30. Keys
-            if (matchWord("Key") || matchWord("Lockpick") || matchWord("Token") || matchWord("Pass") || matchWord("Emblem") ||
-                matchWord("Crest") || matchWord("Badge") || matchWord("Seal") || matchWord("Sigil") || matchWord("Permission") ||
-                matchWord("Ticket") || matchWord("Stamp") || matchWord("License") || matchWord("Permit"))
-                return "Keys";
-
-            // 31. Housing
-            if (matchWord("Housing") || match("House_Seed") || match("Furniture_Seed") || matchWord("Seed"))
-                return "Housing";
-
-            // 32. Currency
-            if (matchWord("Money") || matchWord("Coin") || matchWord("Silver") || matchWord("Gold") || matchWord("Copper") ||
-                matchWord("Cash") || matchWord("Bill") || matchWord("Currency") || matchWord("Credit") || matchWord("Tribute") ||
-                matchWord("Price") || matchWord("Wallet") || matchWord("Funds"))
-                return "Currency";
-
-            // --- WEARABLE EQUIPMENT (Helmets, Cloaks, Gloves, Boots, Armor, Weapons) ---
-            // Must be tested BEFORE Accessories / Rings to prevent "Bandit Armor", "Cloth Armor", etc. from becoming Rings!
-
-            // 33. Helmets
+            // --- WEARABLE EQUIPMENT & WEAPONS (Prioritized first before Ammunition/Materials) ---
+            // 29. Helmets
             if (matchWord("Helm") || matchWord("Helmet") || matchWord("Hat") || matchWord("Cap") || matchWord("Crown") ||
                 matchWord("Hood") || matchWord("Tiara") || matchWord("Circlet") || matchWord("Visor") || matchWord("Headgear") ||
                 matchWord("Turban") || matchWord("Bonnet") || match("Player_Helm"))
                 return "Helmets";
 
-            // 34. Cloaks
+            // 30. Cloaks
             if (matchWord("Cloak") || matchWord("Cape") || matchWord("Mantle") || matchWord("Shawl") || matchWord("Poncho") ||
                 matchWord("Scarf") || match("Player_Cloak"))
                 return "Cloaks";
 
-            // 35. Gloves
+            // 31. Gloves
             if (matchWord("Glove") || matchWord("Gloves") || matchWord("Gauntlet") || matchWord("Bracer") || matchWord("Vambrace") ||
                 matchWord("Mitt") || matchWord("Cuff") || match("Player_Gloves"))
                 return "Gloves";
 
-            // 36. Boots
+            // 32. Boots
             if (matchWord("Boot") || matchWord("Boots") || matchWord("Shoe") || matchWord("Shoes") || matchWord("Greave") ||
                 matchWord("Sabaton") || matchWord("Sandal") || matchWord("Slipper") || match("Player_Boots"))
                 return "Boots";
 
-            // 37. Body Armor / Clothing (Chest, Tunics, Robes, Cloth Armor, Leather Armor, Plate Armor)
+            // 33. Body Armor / Clothing (Chest, Tunics, Robes, Cloth Armor, Leather Armor, Plate Armor)
             if (matchWord("Armor") || matchWord("Plate") || matchWord("Robe") || matchWord("Coat") || matchWord("Chest") ||
                 matchWord("ChainMail") || matchWord("Tunic") || matchWord("Mail") || matchWord("Cuirass") ||
                 matchWord("Vest") || matchWord("Shirt") || matchWord("Breastplate") || matchWord("Hauberk") || matchWord("Doublet") ||
                 matchWord("Outfit") || matchWord("Costume") || matchWord("Garment") || matchWord("Attire") ||
                 matchWord("Dress") || matchWord("Trousers") || matchWord("Pants") || match("Player_Armor") ||
                 match("Cloth_Armor") || match("Leather_Armor") || match("Plate_Armor") ||
-                (match("Cloth") && match("Armor")) || (match("Leather") && match("Armor")))
+                matchWord("Cloth") || matchWord("Leather") || matchWord("Suit") || matchWord("Garb") || matchWord("Uniform") ||
+                matchWord("Corset") || matchWord("Jerkin") || matchWord("Tabard") || matchWord("Surcoat") || matchWord("Gambeson") ||
+                matchWord("Brigandine") || matchWord("Chausses") || matchWord("Breeches") || matchWord("Apparel") || matchWord("Clothing"))
                 return "Armor";
 
-            // 38. Daggers
-            if (match("OneHandDagger") || match("OneHand_Dagger") || matchWord("Dagger") || matchWord("Dirk"))
+            // 34. Necklaces & Bracelets
+            if (matchWord("Necklace") || matchWord("Amulet") || matchWord("Pendant") || matchWord("Choker") || matchWord("Locket") ||
+                matchWord("Talisman") || matchWord("Collar") || matchWord("Bracelet") || matchWord("Bangle") || matchWord("Wristband") ||
+                matchWord("Torc") || match("Accessory_Necklace"))
+                return "Necklaces";
+
+            // 35. Earrings
+            if (matchWord("Earring") || matchWord("Earrings") || matchWord("Stud") || match("Accessory_Earring"))
+                return "Equip Accessory Earring";
+
+            // 36. Glasses
+            if (matchWord("Glasses") || matchWord("Monocle") || matchWord("Goggle") || matchWord("Eyepatch") || matchWord("Spectacle") || match("Accessory_Glasses"))
+                return "Glasses";
+
+            // 37. Masks
+            if (matchWord("Mask") || matchWord("Veil") || matchWord("Blindfold") || matchWord("Visage") || match("Accessory_Mask"))
+                return "Masks";
+
+            // 38. Rings (Strict Word Match only: "Ring", "Signet", "Band", excluding Bandit/Bandana/Ringleader/Offering)
+            if ((matchWord("Ring") || matchWord("Signet") || matchWord("Band") || match("Accessory_Ring")) &&
+                !matchWord("Bandit") && !matchWord("Bandana") && !matchWord("Ringleader") && !matchWord("Offering") &&
+                !matchWord("Spring") && !matchWord("String") && !matchWord("Bearing"))
+                return "Rings";
+
+            // 39. Daggers
+            if (match("OneHandDagger") || match("OneHand_Dagger") || matchWord("Dagger") || matchWord("Dirk") || matchWord("Stiletto") || matchWord("Tanto"))
                 return "Daggers";
 
-            // 39. Shields
+            // 40. Shields
             if (match("OneHandShield") || match("OneHandTowerShield") || match("TowerShield") || matchWord("Shield") ||
                 matchWord("Targe") || matchWord("Buckler") || matchWord("Pavise") || matchWord("Aegis"))
                 return "Shields";
 
-            // 40. Ranged Weapons
+            // 41. Ranged Weapons
             if ((matchWord("Bow") || matchWord("Crossbow") || matchWord("Musket") || matchWord("Pistol") || matchWord("Shotgun") ||
                  matchWord("Cannon") || matchWord("Gun") || matchWord("Rifle") || matchWord("Blaster") || matchWord("Slingshot") ||
                  matchWord("Rocket") || matchWord("Launcher") || matchWord("Arbalest") || match("Range_Weapon") || match("OneHandRange")) &&
                 !matchWord("Arrow") && !matchWord("Bullet") && !matchWord("Ammo") && !matchWord("Shell"))
                 return "Ranged Weapons";
 
-            // 41. Two-Handed Weapons
+            // 42. Two-Handed Weapons
             if (match("TwoHand") || matchWord("Greatsword") || matchWord("GreatSword") || matchWord("GiantHammer") || matchWord("GreatHammer") ||
                 matchWord("Spear") || matchWord("Lance") || matchWord("Polearm") || matchWord("Halberd") || matchWord("Glaive") ||
-                matchWord("Greataxe") || matchWord("BattleAxe") || matchWord("Scythe") || matchWord("Claymore") || matchWord("Sledge") || matchWord("Pike"))
+                matchWord("Greataxe") || matchWord("BattleAxe") || matchWord("Scythe") || matchWord("Claymore") || matchWord("Sledge") || matchWord("Pike") ||
+                matchWord("Guisarme") || matchWord("Partisan"))
                 return "Two-Handed Weapons";
 
-            // 42. One-Handed Weapons
+            // 43. One-Handed Weapons
             if ((match("OneHand") || matchWord("Sword") || matchWord("Mace") || matchWord("Axe") || matchWord("Rapier") ||
                  matchWord("Hwando") || matchWord("Blade") || matchWord("Cutlass") || matchWord("Sabre") || matchWord("Scimitar") ||
-                 matchWord("Wand") || matchWord("Hammer") || matchWord("Weapon") || matchWord("Drill") || matchWord("Katana")) &&
+                 matchWord("Wand") || matchWord("Hammer") || matchWord("Weapon") || matchWord("Drill") || matchWord("Katana") ||
+                 matchWord("Staff") || matchWord("Cane") || matchWord("Club") || matchWord("Flail") || matchWord("Morningstar") ||
+                 matchWord("Shortsword") || matchWord("Broadsword") || matchWord("Longsword") || matchWord("Saber") || matchWord("Falchion") ||
+                 matchWord("Estoc") || matchWord("Gladius") || match("Equip_Weapon")) &&
                 !matchWord("Pickaxe") && !match("Hammer_Craft") && !matchWord("Saw"))
                 return "One-Handed Weapons";
 
-            // --- ACCESSORIES (Necklaces, Earrings, Rings, Glasses, Masks) ---
+            // 44. Ammunition (Tested safely AFTER gear and rings!)
+            if (matchWord("Ammo") || matchWord("Arrow") || matchWord("Bolt") || matchWord("Bullet") || matchWord("Shell") ||
+                matchWord("Projectile") || matchWord("Cartridge") || matchWord("Pellet") || matchWord("Quiver"))
+                return "Ammunition";
 
-            // 43. Necklaces & Bracelets
-            if (matchWord("Necklace") || matchWord("Amulet") || matchWord("Pendant") || matchWord("Choker") || matchWord("Locket") ||
-                matchWord("Talisman") || matchWord("Collar") || matchWord("Bracelet") || matchWord("Bangle") || matchWord("Wristband"))
-                return "Necklaces";
-
-            // 44. Earrings
-            if (matchWord("Earring") || matchWord("Earrings"))
-                return "Equip Accessory Earring";
-
-            // 45. Glasses
-            if (matchWord("Glasses") || matchWord("Monocle") || matchWord("Goggle") || matchWord("Eyepatch") || matchWord("Spectacle"))
-                return "Glasses";
-
-            // 46. Masks
-            if (matchWord("Mask") || matchWord("Veil") || matchWord("Blindfold") || matchWord("Visage"))
-                return "Masks";
-
-            // 47. Rings (Strict Word Match only: "Ring", "Signet", "Band", excluding Bandit/Bandana/Ringleader/Offering)
-            if ((matchWord("Ring") || matchWord("Signet") || matchWord("Band") || match("Accessory_Ring")) &&
-                !matchWord("Bandit") && !matchWord("Bandana") && !matchWord("Ringleader") && !matchWord("Offering") &&
-                !matchWord("Spring") && !matchWord("String") && !matchWord("Bearing"))
-                return "Rings";
-
-            // 48. Metarial Medical
+            // 45. Metarial Medical
             if (matchWord("Medical") || matchWord("Medicine") || matchWord("Drug") || match("Herb_Tea") || matchWord("Gallbladder") ||
-                matchWord("Bile") || matchWord("Venom") || matchWord("Poison") || matchWord("Acid"))
+                matchWord("Bile") || matchWord("Venom") || matchWord("Poison") || matchWord("Acid") || matchWord("Antidote") ||
+                matchWord("Bandage") || matchWord("Tincture") || matchWord("Toxin"))
                 return "Metarial Medical";
 
-            // 49. Korean Food
+            // 46. Korean Food
             if (matchWord("Korea") || matchWord("Soup") || matchWord("Meal") || matchWord("Stew") || matchWord("Roast") || matchWord("Dish") ||
                 matchWord("Cook") || matchWord("Bread") || matchWord("Pie") || matchWord("Cake") || matchWord("Wine") || matchWord("Tea") ||
                 matchWord("Beer") || matchWord("Juice") || matchWord("Ale") || matchWord("Liquor") || matchWord("Coffee") ||
                 matchWord("Sausage") || matchWord("Bacon") || matchWord("Pork") || matchWord("Beef") || matchWord("Chicken") ||
-                matchWord("Poultry") || matchWord("Ration") || (matchWord("Food") && !matchWord("Material")))
+                matchWord("Poultry") || matchWord("Ration") || matchWord("Fish") || matchWord("Steak") || matchWord("Feast") ||
+                (matchWord("Food") && !matchWord("Material")))
                 return "Korean Food";
 
-            // 50. Food Materials
+            // 47. Food Materials
             if (matchWord("Ingredient") || matchWord("Crop") || matchWord("Vegetable") || matchWord("Grain") || matchWord("Wheat") ||
                 matchWord("Flour") || matchWord("Apple") || matchWord("Egg") || matchWord("Flax") || matchWord("Ama") || matchWord("Bean") ||
                 matchWord("Berry") || matchWord("Mushroom") || matchWord("Fungus") || matchWord("Fungi") || matchWord("Honey") ||
                 matchWord("Sugar") || matchWord("Salt") || matchWord("Oil") || matchWord("Milk") || matchWord("Butter") || matchWord("Onion") ||
                 matchWord("Garlic") || matchWord("Potato") || matchWord("Carrot") || matchWord("Corn") || matchWord("Rice") || matchWord("Water") ||
                 matchWord("Lemon") || matchWord("Grape") || matchWord("Herb") || matchWord("Plant") || matchWord("Flower") || matchWord("Seed") ||
-                matchWord("Root") || matchWord("Leaf") || matchWord("Nut") || matchWord("Stalk") || matchWord("Fish") || matchWord("Meat"))
+                matchWord("Root") || matchWord("Leaf") || matchWord("Nut") || matchWord("Stalk") || matchWord("Meat") || matchWord("Flesh") ||
+                matchWord("Fruit") || matchWord("Grass") || matchWord("Vine") || matchWord("Moss") || matchWord("Petal"))
                 return "Food Materials";
 
-            // 51. Metarial Object
-            if (matchWord("Ore") || matchWord("Ingot") || matchWord("Wood") || matchWord("Timber") || matchWord("Lumber") || matchWord("Log") ||
-                matchWord("Plank") || matchWord("Branch") || matchWord("Leather") || matchWord("Hide") || matchWord("Pelt") || matchWord("Fur") ||
-                matchWord("Skin") || matchWord("Cloth") || matchWord("Silk") || matchWord("Fabric") || matchWord("Thread") || matchWord("Fiber") ||
-                matchWord("Stone") || matchWord("Rock") || matchWord("Gem") || matchWord("Jewel") || matchWord("Diamond") || matchWord("Ruby") ||
-                matchWord("Sapphire") || matchWord("Emerald") || matchWord("Topaz") || matchWord("Amber") || matchWord("Pearl") || matchWord("Fragment") ||
-                matchWord("Shard") || matchWord("Dust") || matchWord("Powder") || matchWord("Alchemy") || matchWord("Refine") || matchWord("Material") ||
-                matchWord("Mat") || matchWord("Craft") || matchWord("Component") || matchWord("Essence") || matchWord("Extract") || matchWord("Mineral") ||
-                matchWord("Iron") || matchWord("Copper") || matchWord("Steel") || matchWord("Coal") || matchWord("Crystal") || matchWord("Scale") ||
-                matchWord("Bone") || matchWord("Horn") || matchWord("Claw") || matchWord("Fang") || matchWord("Feather") || matchWord("Cell") ||
-                matchWord("Fossil") || matchWord("Shell") || matchWord("Resin") || matchWord("Sap") || matchWord("Wool") || matchWord("Bar") ||
-                matchWord("Chunk") || matchWord("Fluid") || matchWord("Eye") || matchWord("Heart") || matchWord("Liver") || matchWord("Blood") ||
-                matchWord("Tail") || matchWord("Wing") || matchWord("Beak") || matchWord("Carapace") || matchWord("Chitin") || matchWord("Yarn") ||
-                matchWord("Clay") || matchWord("Sand") || matchWord("Glass") || matchWord("Metal") || matchWord("Alloy") || matchWord("Charcoal") ||
-                matchWord("Ash") || matchWord("Sulfur") || matchWord("Mercury") || matchWord("Sphere") || matchWord("Cog") || matchWord("Gear") ||
-                matchWord("Spring") || matchWord("Screw") || matchWord("Wire") || matchWord("Part") || matchWord("Core") || matchWord("Scrap") ||
-                matchWord("Customize") || matchWord("Coupon") || matchWord("Appearance") || matchWord("Deaging") || matchWord("Aging") ||
-                matchWord("Scar") || matchWord("Dye") || matchWord("Palette") || matchWord("Hair") || matchWord("Face") || matchWord("Tattoo"))
-                return "Metarial Object";
-
-            return "Uncategorised";
+            // 48. Metarial Object (Universal Crafting & Object Classification)
+            return "Metarial Object";
         }
 
         // --- Category Table Info & Icons (Matching 1.18.0.2 Exactly, 100% verified in pak 12) ---
@@ -1146,8 +1126,15 @@ namespace trinity::game
                 char rawGrp[128]{};
                 if (GroupName(it.cat.row, rawGrp, sizeof(rawGrp)) && rawGrp[0] != 0)
                 {
-                    snprintf(t_catNameBuf, sizeof(t_catNameBuf), "%s", rawGrp);
-                    return t_catNameBuf;
+                    uint16_t testOrder = 0;
+                    // Only accept the engine group name if it matches a genuine, validated category.
+                    // If it returns a corrupted string (e.g. "Kliff", "liff", raw item names, quest triggers),
+                    // reject it and fall back to DeduceCategoryFromItem so it sorts cleanly with proper icons.
+                    if (GetCategoryInfoByName(rawGrp, &testOrder, nullptr, 0))
+                    {
+                        snprintf(t_catNameBuf, sizeof(t_catNameBuf), "%s", rawGrp);
+                        return t_catNameBuf;
+                    }
                 }
             }
             return DeduceCategoryFromItem(it.key, it.name);
@@ -1211,11 +1198,21 @@ namespace trinity::game
             return HolderForContainer(container);
         }
 
+        bool IsLiveCharacter(uintptr_t c);
+        uintptr_t CurrentHolder(); // defined below; used by ServerHolder()
+
         // The client inventory CONTAINER (one step short of the holder): core
         // global -> +0x30 -> +0x50. Used to tell the client container apart
         // from the server one in the holder-insert hook.
         uintptr_t ResolveClientContainer()
         {
+            const uintptr_t h = g_holder.load(std::memory_order_relaxed);
+            if (h >= kMinPointer)
+            {
+                uintptr_t owner = 0;
+                if (ReadPtr(h + 8, &owner) && IsLiveCharacter(owner))
+                    return owner;
+            }
             if (!g_coreGlobal) return 0;
             uintptr_t g = 0, mid = 0, container = 0;
             if (!ReadPtr(g_coreGlobal, &g) || g < kMinPointer) return 0;
@@ -1223,8 +1220,6 @@ namespace trinity::game
             if (!ReadPtr(mid + kOff_Mid_Container, &container) || container < kMinPointer) return 0;
             return container;
         }
-
-        uintptr_t CurrentHolder(); // defined below; used by ServerHolder()
         bool ApplySlotCapToHolder(uintptr_t holder, bool enable, uint16_t value);
 
         // Bucket count of a holder, or 0 if it does not read back sanely. Used
@@ -1296,7 +1291,8 @@ namespace trinity::game
             uintptr_t tlsArray = 0, tls = 0;
             if (!RawReadPtr(teb + kOff_Teb_TlsPointer, &tlsArray) || !tlsArray) return 0;
             if (!RawReadPtr(tlsArray, &tls) || !tls) return 0;
-            const uintptr_t addr = tls + kTls_RealmFlag;
+            const uintptr_t addr = tls +
+                core::RealmFlagOffsetForRevision(core::GetGameVersion().revision);
             uint8_t v = 0;
             if (!RawRead8(addr, &v)) return 0;
             if (outVal) *outVal = v;
@@ -1551,17 +1547,23 @@ namespace trinity::game
             g_candCount.store(keep, std::memory_order_release);
         }
 
-        void NoteContainer(void* container)
+        void NoteContainer(void* container, void* knownHolder = nullptr)
         {
             const uintptr_t c = reinterpret_cast<uintptr_t>(container);
-            if (c < kMinPointer || !oGetHolder || !g_candLockInit) return;
+            if (c < kMinPointer || !g_candLockInit) return;
 
-            // Resolving a container mid-construction can fault - never let that
-            // take the process down (this runs during load, by definition).
-            void* h = nullptr;
-            __try { h = oGetHolder(container); }
-            __except (EXCEPTION_EXECUTE_HANDLER) { h = nullptr; }
-            if (reinterpret_cast<uintptr_t>(h) < kMinPointer) return;
+            // TU 2.01's transaction commit already supplies the authoritative
+            // holder in rcx and its container at [holder+8]. Preserve that
+            // exact pair; resolving the container again can return a different
+            // realm's holder and was why server capture stayed empty.
+            void* h = knownHolder;
+            if (reinterpret_cast<uintptr_t>(h) < kMinPointer && oGetHolder)
+            {
+                __try { h = oGetHolder(container); }
+                __except (EXCEPTION_EXECUTE_HANDLER) { h = nullptr; }
+            }
+            const uintptr_t holder = reinterpret_cast<uintptr_t>(h);
+            if (holder < kMinPointer || !HolderLooksValid(holder)) return;
 
             const ULONGLONG now = GetTickCount64();
             EnterCriticalSection(&g_candLock);
@@ -1577,10 +1579,14 @@ namespace trinity::game
             if (at < 0 && cnt < kMaxCandidates) at = cnt;
             if (at >= 0)
             {
+                const bool isNewPair = at >= cnt || g_cand[at].holder != holder;
                 g_cand[at].container = c;
-                g_cand[at].holder    = reinterpret_cast<uintptr_t>(h);
+                g_cand[at].holder    = holder;
                 g_cand[at].tick      = now;
                 if (at >= cnt) g_candCount.store(at + 1, std::memory_order_release); // publish last
+                if (isNewPair)
+                    LOG("inventory: captured transaction holder=%p container=%p.",
+                        reinterpret_cast<void*>(holder), reinterpret_cast<void*>(c));
             }
             LeaveCriticalSection(&g_candLock);
         }
@@ -1593,6 +1599,25 @@ namespace trinity::game
             __try { NoteContainer(container); } __except (EXCEPTION_EXECUTE_HANDLER) {}
             g_commitActive.store(true, std::memory_order_release);
             void* ret = oCommit(holder, err, container, items, out, a6, a7);
+            g_commitActive.store(false, std::memory_order_release);
+            return ret;
+        }
+
+        void* __fastcall hkCommit201(void* holder, void* err, void* placements,
+                                     uint16_t mode, void* outEvents, uint8_t notify,
+                                     uint8_t reconcile, uint8_t replicate)
+        {
+            if (!oCommit201) return nullptr;
+            uintptr_t container = 0;
+            __try
+            {
+                if (holder && ReadPtr(reinterpret_cast<uintptr_t>(holder) + 8, &container))
+                    NoteContainer(reinterpret_cast<void*>(container), holder);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+            g_commitActive.store(true, std::memory_order_release);
+            void* ret = oCommit201(holder, err, placements, mode, outEvents,
+                                   notify, reconcile, replicate);
             g_commitActive.store(false, std::memory_order_release);
             return ret;
         }
@@ -1787,24 +1812,21 @@ namespace trinity::game
 
         // The 16-bit-key table-resolver clone prologue (TU 1.10 - 1.15 legacy), ending at the
         // Universal Item Table Resolver Clone Prologue Matcher
-        // Matches 1.14 (0x40 frame) and 1.18 (0x50 frame) table resolver clone prologues
+        // Matches 1.14 (0x40 frame), 1.18 (0x50 frame) and TU 2.00 table resolver clone prologues
         uintptr_t FindItemPrologueAbove(uintptr_t match)
         {
-            for (size_t back = 0x15; back <= 0x80; ++back)
+            for (size_t back = 0x10; back <= 0x120; ++back)
             {
                 const uintptr_t cand = match - back;
                 __try
                 {
                     const uint8_t* p = reinterpret_cast<const uint8_t*>(cand);
-                    // 48 89 5C 24 10 48 89 6C 24 18 56 57 41 56 48 83 EC (40 or 50)
-                    if (p[0] == 0x48 && p[1] == 0x89 && p[2] == 0x5C && p[3] == 0x24 && p[4] == 0x10 &&
-                        p[5] == 0x48 && p[6] == 0x89 && p[7] == 0x6C && p[8] == 0x24 && p[9] == 0x18 &&
-                        p[10] == 0x56 && p[11] == 0x57 && p[12] == 0x41 && p[13] == 0x56 &&
-                        p[14] == 0x48 && p[15] == 0x83 && p[16] == 0xEC &&
-                        (p[17] == 0x40 || p[17] == 0x50))
-                    {
+                    // 1. sub rsp, 50h / 40h (modern TU 2.00 fast table lookup)
+                    if (p[0] == 0x48 && p[1] == 0x83 && p[2] == 0xEC && (p[3] == 0x50 || p[3] == 0x40))
                         return cand;
-                    }
+                    // 2. 48 89 5C 24 10 ...
+                    if (p[0] == 0x48 && p[1] == 0x89 && p[2] == 0x5C && p[3] == 0x24 && p[4] == 0x10)
+                        return cand;
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER) {}
             }
@@ -1842,14 +1864,44 @@ namespace trinity::game
             mem::FindPatternIf(indirect ? kSig_MovR8Rip : kSig_LeaR8Rip, &IsTableRef, &hunt);
             if (hunt.fn)
             {
-                uintptr_t g = mem::ResolveRipAt(hunt.fn + kOff_ItemResolver_MovGlobal, 7);
-                if (g >= kMinPointer)
+                for (uintptr_t p = hunt.fn; p + 7 <= hunt.fn + 0x60; ++p)
                 {
-                    LOG_OK("inventory: table '%s' resolved via string-anchor -> %p",
-                           name, reinterpret_cast<void*>(g));
+                    __try
+                    {
+                        const uint8_t* b = reinterpret_cast<const uint8_t*>(p);
+                        if (b[0] == 0x48 && b[1] == 0x8B && ((b[2] & 0xC7) == 0x05))
+                        {
+                            uintptr_t g = mem::ResolveRipAt(p, 7);
+                            if (g >= kMinPointer)
+                            {
+                                LOG_OK("inventory: table '%s' resolved via string-anchor -> %p",
+                                       name, reinterpret_cast<void*>(g));
+                                return g;
+                            }
+                        }
+                    }
+                    __except (EXCEPTION_EXECUTE_HANDLER) {}
+                }
+            }
+
+            // Fallback for TU 2.00.01 (PE 1.0.0.2625 / 1.0.0.2658)
+            uintptr_t gameBase = reinterpret_cast<uintptr_t>(GetModuleHandleA(nullptr));
+            if (core::GetGameVersion().revision >= 2625)
+            {
+                if (_stricmp(name, "WantedInfo") == 0)
+                {
+                    uintptr_t g = gameBase + 0x6350EE8;
+                    LOG_OK("inventory: table 'WantedInfo' resolved via TU 2.00 fallback -> %p", reinterpret_cast<void*>(g));
+                    return g;
+                }
+                if (_stricmp(name, "tribeinfo") == 0)
+                {
+                    uintptr_t g = gameBase + 0x63307A8;
+                    LOG_OK("inventory: table 'tribeinfo' resolved via TU 2.00 fallback -> %p", reinterpret_cast<void*>(g));
                     return g;
                 }
             }
+
             return 0;
         }
 
@@ -1914,11 +1966,6 @@ namespace trinity::game
             }
         }
 
-        // --- No Bounty: crime/wanted suppression (upstream v1.3.2) -----------
-        // Two hooks: the wanted-state evaluator (return 7 = eWantedState_None
-        // blocks witness/pursuit/bounty) and the central crime event dispatcher
-        // (return 0 suppresses murder/assault/theft events, the crime UI banner,
-        // the minimap wanted circle and guard hostility).
         using EvaluateCrimeWantedState_t = uint8_t(__fastcall*)(void* wantedMgr, void* actorCtx);
         EvaluateCrimeWantedState_t oEvaluateCrimeWantedState = nullptr;
         void* g_evalWantedTarget = nullptr;
@@ -1927,32 +1974,41 @@ namespace trinity::game
         {
             const State& st = State::Get();
             if (st.noBounty)
-                return 7; // eWantedState_None
+            {
+                // 7 = eWantedState_None (completely blocks Witness, Suspect, Assault, and Pursuit)
+                return 7;
+            }
             return oEvaluateCrimeWantedState ? oEvaluateCrimeWantedState(wantedMgr, actorCtx) : 0;
         }
 
-        using RegisterCrimeEvent_t = uint8_t(__fastcall*)(void* wantedMgr, uint32_t crimeId, void* outInfo, void* a4);
         RegisterCrimeEvent_t oRegisterCrimeEvent = nullptr;
         void* g_registerCrimeTarget = nullptr;
 
-        uint8_t __fastcall hkRegisterCrimeEvent(void* wantedMgr, uint32_t crimeId, void* outInfo, void* a4)
+        void __fastcall hkRegisterCrimeEvent(void* dispatcher, const char* eventName,
+                                             void* eventData, void* eventContext)
         {
             const State& st = State::Get();
             if (st.noBounty)
-                return 0; // fully suppress the crime event
-            return oRegisterCrimeEvent ? oRegisterCrimeEvent(wantedMgr, crimeId, outInfo, a4) : 0;
+            {
+                // Completely suppress Murder, Assault, Theft, and Property Destruction:
+                // Prevents the on-screen "Crime: Murder" / "Crime: Assault" banner,
+                // prevents the minimap red wanted circle, and keeps guards 100% peaceful!
+                return;
+            }
+            if (oRegisterCrimeEvent)
+                oRegisterCrimeEvent(dispatcher, eventName, eventData, eventContext);
         }
     }
 
     bool Inventory::Install()
     {
-        // No Bounty: crime/wanted suppression hooks (non-fatal).
         mem::InstallHook("world: evaluate-wanted-state", kSig_EvaluateCrimeWantedState,
                          "Witnessed/Assault crime bypass disabled",
-                         &hkEvaluateCrimeWantedState, &oEvaluateCrimeWantedState, &g_evalWantedTarget);
+                         &hkEvaluateCrimeWantedState, &oEvaluateCrimeWantedState, &g_evalWantedTarget, 0);
+
         mem::InstallHook("world: register-crime-event", kSig_RegisterCrimeEvent,
                          "Crime event dispatch & UI banner bypass disabled",
-                         &hkRegisterCrimeEvent, &oRegisterCrimeEvent, &g_registerCrimeTarget);
+                         &hkRegisterCrimeEvent, &oRegisterCrimeEvent, &g_registerCrimeTarget, 0);
 
         if (!mem::InstallHook("inventory: item-count accessor", kSig_InvGetItemQty, nullptr,
                               &hkGetItemQty, &oGetItemQty, &g_qtyTarget, 4))
@@ -1988,35 +2044,57 @@ namespace trinity::game
         // Item is refused, and every other inventory feature still works).
         // These are CALLED, not hooked. The insert planner is oHolderInsert,
         // resolved by the hook above - same function.
-        static const char* kCtorSigs[] = {
-            kSig_TrItemValueCtor,
+        const uint16_t revision = core::GetGameVersion().revision;
+        const bool allowLegacyFuzzy = core::MayUseLegacyFuzzySignaturesForRevision(revision);
+        static const char* kLegacyCtorSigs[] = {
+            kSig_TrItemValueCtor_Pre201,
             "48 89 5C 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC ? 4C 8B",
             "48 89 5C 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8B EC",
             "48 89 5C 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 83 EC",
             "48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC 20 48 8B D9 48 8B 09",
             "48 89 5C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 83 EC",
         };
-        for (const char* sig : kCtorSigs)
+        const uintptr_t currentCtor = mem::FindPattern(kSig_TrItemValueCtor);
+        const size_t currentMatches = mem::CountMatches(kSig_TrItemValueCtor, 2);
+        if (currentCtor && currentMatches == 1)
         {
-            const uintptr_t addr = mem::FindPattern(sig);
-            const size_t matches = mem::CountMatches(sig, 4);
-            if (addr && (matches == 1 || matches == 2))
+            oItemValueCtor = reinterpret_cast<ItemValueCtor_t>(currentCtor);
+            LOG_OK("inventory: TrItemValue TU 2.01 native ctor resolved at %p",
+                   reinterpret_cast<void*>(currentCtor));
+        }
+        else if (allowLegacyFuzzy)
+        {
+            for (const char* sig : kLegacyCtorSigs)
             {
-                oItemValueCtor = reinterpret_cast<ItemValueCtor_t>(addr);
-                LOG_OK("inventory: TrItemValue native ctor resolved at %p (matches=%zu)", reinterpret_cast<void*>(addr), matches);
-                break;
+                const uintptr_t addr = mem::FindPattern(sig);
+                const size_t matches = mem::CountMatches(sig, 4);
+                if (addr && (matches == 1 || matches == 2))
+                {
+                    oItemValueCtor = reinterpret_cast<ItemValueCtor_t>(addr);
+                    LOG_OK("inventory: TrItemValue legacy native ctor resolved at %p (matches=%zu)",
+                           reinterpret_cast<void*>(addr), matches);
+                    break;
+                }
             }
         }
         if (!oItemValueCtor)
         {
-            LOG("inventory: using synthetic TrItemValue constructor for cross-version compatibility.");
+            LOG_WARN("inventory: native TrItemValue constructor unavailable - Add Item will be refused.");
         }
 
-        const uintptr_t commitAddr = mem::FindPattern(kSig_InvCommitPlacement);
-        const uintptr_t freeAddr   = mem::FindPattern(kSig_InvFreePlacements);
+        const uintptr_t commitAddr = mem::FindPattern(
+            revision == 2760 ? kSig_InvCommitPlacement201 : kSig_InvCommitPlacement);
+        const uintptr_t freeAddr   = mem::FindPattern(
+            revision == 2760 ? kSig_InvFreePlacements201 : kSig_InvFreePlacements);
         const uintptr_t dtorAddr   = mem::FindPattern(kSig_TrItemValueDtor);
 
-        if (commitAddr) oCommitPlacement = reinterpret_cast<CommitPlacement_t>(commitAddr);
+        if (commitAddr)
+        {
+            if (revision == 2760)
+                oCommitPlacement201 = reinterpret_cast<CommitPlacement201_t>(commitAddr);
+            else
+                oCommitPlacement = reinterpret_cast<CommitPlacement_t>(commitAddr);
+        }
         if (freeAddr)   oFreePlacements  = reinterpret_cast<FreePlacements_t>(freeAddr);
         if (dtorAddr)   oItemValueDtor   = reinterpret_cast<ItemValueDtor_t>(dtorAddr);
         // The TEB lookup for the realm flag. Deliberately NtQueryInformationThread
@@ -2026,12 +2104,6 @@ namespace trinity::game
         if (const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll"))
             oNtQueryInfoThread = reinterpret_cast<NtQueryInformationThread_t>(
                 GetProcAddress(ntdll, "NtQueryInformationThread"));
-        if (!oCommitPlacement || !oFreePlacements || !oNtQueryInfoThread)
-            LOG_WARN("inventory: add-item path incomplete (commit=%d free=%d teb=%d)"
-                     " - Add Item will be refused.",
-                     oCommitPlacement ? 1 : 0, oFreePlacements ? 1 : 0,
-                     oNtQueryInfoThread ? 1 : 0);
-
         if (!g_candLockInit)
         {
             InitializeCriticalSection(&g_candLock);
@@ -2052,9 +2124,16 @@ namespace trinity::game
         // hook cannot be installed but the address resolves, fall back to
         // call-only: the toggle still applies from Tick(), it just re-fights
         // the engine's stamps (the old, racy behaviour).
-        if (!mem::InstallHook("inventory: slot-expansion setter", kSig_InvSetExpandSlots,
-                              "Slot Size will not apply",
-                              &hkSetExpandSlots, &oSetExpandSlots, &g_expandTarget, 4))
+        if (revision == 2760)
+        {
+            // TU 2.01 removed the old five-argument setter ABI.  Apply the
+            // complete bucket state every game tick instead; this updates the
+            // expansion, delta, and derived-cap fields on both realms.
+            LOG_OK("inventory: TU 2.01 continuous slot-expansion guard active.");
+        }
+        else if (!mem::InstallHook("inventory: slot-expansion setter", kSig_InvSetExpandSlots,
+                                   "Slot Size will not apply",
+                                   &hkSetExpandSlots, &oSetExpandSlots, &g_expandTarget, 4))
         {
             const uintptr_t expandAddr = mem::FindPattern(kSig_InvSetExpandSlots);
             if (expandAddr)
@@ -2072,26 +2151,63 @@ namespace trinity::game
         // before the save loads, which an ASI at process start always is.
         // Optional: without it, edits still apply to the client mirror but the
         // reconcile reverts them (the menu still lists/reads fine).
-        mem::InstallHook("inventory: transaction commit", kSig_InvCommit,
-                         "quantity edits will not persist (revert on reconcile)",
-                         &hkCommit, &oCommit, &g_commitTarget, 4);
+        if (revision == 2760)
+        {
+            if (mem::InstallHook("inventory: TU 2.01 transaction commit", kSig_InvCommit,
+                                 "quantity edits will not persist (revert on reconcile)",
+                                 &hkCommit201, &oCommit201, &g_commit201Target, 2))
+                LOG_OK("inventory: TU 2.01 transaction commit hook installed @ %p",
+                       g_commit201Target);
+        }
+        else
+        {
+            mem::InstallHook("inventory: transaction commit", kSig_InvCommit_Pre201,
+                             "quantity edits will not persist (revert on reconcile)",
+                             &hkCommit, &oCommit, &g_commitTarget, 4);
+        }
 
         // Secondary capture path: fires on a real add/drop/buy, not at load.
         // Catches containers that only appear later (e.g. character swap).
-        if (!mem::InstallHook("inventory: holder-insert", kSig_InvHolderInsert, nullptr,
-                              &hkHolderInsert, &oHolderInsert, &g_insTarget, 2))
+        if (revision == 2760)
+        {
+            mem::InstallHook("inventory: TU 2.01 holder-insert", kSig_InvHolderInsert201,
+                             "Add Item will be refused and server holder capture is limited",
+                             &hkHolderInsert, &oHolderInsert, &g_insTarget, 2);
+        }
+        else if (!mem::InstallHook("inventory: holder-insert", kSig_InvHolderInsert, nullptr,
+                                   &hkHolderInsert, &oHolderInsert, &g_insTarget, 2))
         {
             mem::InstallHook("inventory: holder-insert legacy", kSig_InvHolderInsert_Legacy,
                              "server holder relies on the commit hook alone",
                              &hkHolderInsert, &oHolderInsert, &g_insTarget, 2);
         }
 
+        const bool addItemReady = oItemValueCtor && oHolderInsert &&
+            (oCommitPlacement || oCommitPlacement201) && oFreePlacements && oNtQueryInfoThread;
+        if (addItemReady)
+            LOG_OK("inventory: native Add Item path ready (ctor=%p planner=%p commit=%p free=%p).",
+                   reinterpret_cast<void*>(oItemValueCtor), reinterpret_cast<void*>(oHolderInsert),
+                   reinterpret_cast<void*>(oCommitPlacement201 ?
+                       reinterpret_cast<uintptr_t>(oCommitPlacement201) :
+                       reinterpret_cast<uintptr_t>(oCommitPlacement)),
+                   reinterpret_cast<void*>(oFreePlacements));
+        else
+            LOG_WARN("inventory: add-item path incomplete (ctor=%d planner=%d commit=%d free=%d teb=%d)"
+                     " - Add Item will be refused.",
+                     oItemValueCtor ? 1 : 0, oHolderInsert ? 1 : 0,
+                     (oCommitPlacement || oCommitPlacement201) ? 1 : 0,
+                     oFreePlacements ? 1 : 0, oNtQueryInfoThread ? 1 : 0);
+
         // Durable container walk (optional but preferred - without it the
         // list only appears once the game happens to query an item count,
         // which is hit-or-miss at load).
-        const uintptr_t globAnchor = mem::FindPattern(kSig_InvCoreGlobal);
+        const char* coreGlobalSig = revision == 2760
+            ? kSig_InvCoreGlobal
+            : kSig_InvCoreGlobal_Pre201;
+        const uintptr_t globAnchor = mem::FindPattern(coreGlobalSig);
         if (globAnchor)
-            g_coreGlobal = mem::ResolveRipAt(globAnchor + kOff_InvCoreGlobal_Mov, 7);
+            g_coreGlobal = mem::ResolveRipAt(
+                globAnchor + core::InventoryCoreGlobalMovOffsetForRevision(revision), 7);
 
         // Item defs (optional - resolved lazily when inventory is opened).
         g_itemTableGlobal = FindTableGlobal(kStr_ItemInfoTable);
@@ -2124,6 +2240,7 @@ namespace trinity::game
         mem::RemoveHook(&g_qtyTarget);
         mem::RemoveHook(&g_insTarget);
         mem::RemoveHook(&g_commitTarget);
+        mem::RemoveHook(&g_commit201Target);
         mem::RemoveHook(&g_expandTarget); // after the restore above, which
                                           // still calls its trampoline
         mem::RemoveHook(&g_evalWantedTarget);
@@ -2706,7 +2823,7 @@ namespace trinity::game
         // Free-Space Gate to reject all vendor purchases. See XeTrinityz-reference.
         bool ApplySlotCapToHolder(uintptr_t holder, bool enable, uint16_t value)
         {
-            if (!oSetExpandSlots) return false;
+            if (!oSetExpandSlots && core::GetGameVersion().revision != 2760) return false;
             if (!HolderLooksValid(holder)) return false;
             uintptr_t buckets = 0;
             uint32_t  bcount  = 0;
@@ -2954,7 +3071,7 @@ namespace trinity::game
                     }
 
                     const int64_t diff = old.qty - curQty;
-                    // The item was sold, discarded, or consumed!
+                    // The item was genuinely sold, discarded, or consumed!
                     Inventory::RecordLostItem(old.typeId, diff, old.name, old.key, old.icon, "Sold / Discarded");
                 }
             }
@@ -2988,7 +3105,7 @@ namespace trinity::game
             {
                 static ULONGLONG s_lastTrack = 0;
                 const ULONGLONG now = GetTickCount64();
-                if (now - s_lastTrack >= 1500)
+                if (now - s_lastTrack >= 3000)
                 {
                     s_lastTrack = now;
                     TrackInventoryChanges();
@@ -2997,12 +3114,12 @@ namespace trinity::game
 
             // Heal the used-slot accounting that quantity edits bend and reloads
             // detonate (the "inventory full beside empty slots" bug). Always on;
-            // 20 Hz (50ms); a strict no-op on buckets the engine's own accounting produced.
+            // throttled to 2000ms (0.5 Hz) to keep game-thread overhead near zero; a strict no-op on buckets the engine's own accounting produced.
             if (Player::Ready())
             {
                 static ULONGLONG s_lastRepair = 0;
                 const ULONGLONG now = GetTickCount64();
-                if (now - s_lastRepair >= 50)
+                if (now - s_lastRepair >= 2000)
                 {
                     s_lastRepair = now;
                     RepairUsedSlots(CurrentHolder());
@@ -3246,14 +3363,30 @@ namespace trinity::game
     uintptr_t Inventory::ClientCharacterAddr()
     {
         const uintptr_t c = ResolveClientContainer();
-        return IsLiveCharacter(c) ? c : 0;
+        if (IsLiveCharacter(c)) return c;
+        const uintptr_t h = CurrentHolder();
+        if (h)
+        {
+            uintptr_t owner = 0;
+            if (ReadPtr(h + 8, &owner) && IsLiveCharacter(owner))
+                return owner;
+        }
+        return 0;
     }
 
     uintptr_t Inventory::ServerCharacterAddr()
     {
         ServerHolder(); // resolves/re-validates g_serverContainer as a side effect
         const uintptr_t c = g_serverContainer.load(std::memory_order_acquire);
-        return IsLiveCharacter(c) ? c : 0;
+        if (IsLiveCharacter(c)) return c;
+        const uintptr_t h = ServerHolder();
+        if (h)
+        {
+            uintptr_t owner = 0;
+            if (ReadPtr(h + 8, &owner) && IsLiveCharacter(owner))
+                return owner;
+        }
+        return 0;
     }
 
     // Identify character identity from a raw EQUIP COMPONENT's equipped items.
@@ -3284,7 +3417,14 @@ namespace trinity::game
         uint32_t count = 0;
         uintptr_t stride = 0xD0;
 
-        if (ReadPtr(comp + 0x80, &desc) && desc >= kMinPointer &&
+        // TU 2.01+ (+0x90) Priority
+        if (ReadPtr(comp + 0x90, &desc) && desc >= kMinPointer &&
+            ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
+            Read32(desc + kOff_EquipTable_Count, &count) && count >= 1 && count <= 64)
+        {
+            stride = 0xD0;
+        }
+        else if (ReadPtr(comp + 0x80, &desc) && desc >= kMinPointer &&
             ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
             Read32(desc + kOff_EquipTable_Count, &count) && count >= 1 && count <= 64)
         {
@@ -3809,8 +3949,12 @@ namespace trinity::game
                         const uint16_t slotIdx =
                             *reinterpret_cast<uint16_t*>(p + slotIdxOffset);
                         int err2 = 0;
-                        oCommitPlacement(reinterpret_cast<void*>(holder), &err2, nullptr,
-                                         reinterpret_cast<void*>(p), slotIdx);
+                        if (oCommitPlacement201)
+                            oCommitPlacement201(reinterpret_cast<void*>(holder), &err2,
+                                                reinterpret_cast<void*>(p), slotIdx);
+                        else
+                            oCommitPlacement(reinterpret_cast<void*>(holder), &err2, nullptr,
+                                             reinterpret_cast<void*>(p), slotIdx);
                         if (err2 == 0) ++committed;
                         else if (!firstErr2) firstErr2 = err2;
                     }
@@ -3924,20 +4068,22 @@ namespace trinity::game
         // the server mirror then the client one.
         bool CommitAdd(uint16_t typeId, int64_t qty)
         {
-            const bool ready = oHolderInsert && oCommitPlacement &&
+            const bool ready = oItemValueCtor && oHolderInsert &&
+                               (oCommitPlacement || oCommitPlacement201) &&
                                oFreePlacements && oNtQueryInfoThread;
             uintptr_t def = 0;
             const bool haveDef = DefForRow(g_itemTableGlobal, typeId, &def);
             const uintptr_t clientH = CurrentHolder();
             uintptr_t serverH = ServerHolder();
-            if (!ready || !haveDef || !clientH)
+            if (!CanCommitAuthoritativeAdd(ready, haveDef, clientH, serverH))
             {
-                LOG_WARN("inventory: add item %u x%lld - not ready (ready=%d client=%p server=%p def=%p ctor=%d ins=%d commit=%d free=%d teb=%d)",
+                LOG_WARN("inventory: add item %u x%lld refused - authoritative server holder unavailable (ready=%d client=%p server=%p def=%p ctor=%d ins=%d commit=%d free=%d teb=%d)",
                          typeId, static_cast<long long>(qty),
                          ready ? 1 : 0,
                          reinterpret_cast<void*>(clientH), reinterpret_cast<void*>(serverH),
                          reinterpret_cast<void*>(def),
-                         oItemValueCtor ? 1 : 0, oHolderInsert ? 1 : 0, oCommitPlacement ? 1 : 0,
+                         oItemValueCtor ? 1 : 0, oHolderInsert ? 1 : 0,
+                         (oCommitPlacement || oCommitPlacement201) ? 1 : 0,
                          oFreePlacements ? 1 : 0, oNtQueryInfoThread ? 1 : 0);
                 return false;
             }
@@ -3952,7 +4098,7 @@ namespace trinity::game
             }
 
             // Instance ID allocation
-            uintptr_t authorityH = (serverH && serverH != clientH) ? serverH : clientH;
+            uintptr_t authorityH = serverH;
             uintptr_t serverC = 0;
             if (!ReadPtr(authorityH + kOff_InvHolder_Container, &serverC) || serverC < kMinPointer)
             {
@@ -3993,10 +4139,8 @@ namespace trinity::game
 
             // Server first if available and distinct, then client mirror
             bool okServer = false;
-            if (serverH && serverH != clientH)
-            {
-                okServer = AddIntoHolder(serverH, /*serverRealm=*/true,  typeId, qty, id, def);
-            }
+            bool okClient = false;
+            okServer = AddIntoHolder(serverH, /*serverRealm=*/true, typeId, qty, id, def);
             if (!okServer)
             {
                 Candidate snap[kMaxCandidates] = {};
@@ -4016,9 +4160,12 @@ namespace trinity::game
                     }
                 }
             }
-            const bool okClient = AddIntoHolder(clientH, /*serverRealm=*/false, typeId, qty, id, def);
+            // Never create a client-only mirror. If authority rejects the
+            // transaction, leave the visible inventory untouched.
+            if (okServer)
+                okClient = AddIntoHolder(clientH, /*serverRealm=*/false, typeId, qty, id, def);
 
-            if (okClient || okServer)
+            if (okServer)
             {
                 char itemName[64] = "";
                 if (!DisplayNameForType(typeId, itemName, sizeof(itemName)))
@@ -5549,5 +5696,11 @@ namespace trinity::game
         }
 
         return matched;
+    }
+
+
+    uintptr_t Inventory::FindTableGlobal(const char* name, bool indirect)
+    {
+        return ::trinity::game::FindTableGlobal(name, indirect);
     }
 }

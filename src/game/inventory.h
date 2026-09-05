@@ -328,6 +328,9 @@ namespace trinity::game
         static bool SetAllMaxStackSizes(bool enable, int64_t value);
         static bool SetAllSlotSizes(bool enable, int value);
 
+        // Reflection table resolution helper
+        static uintptr_t FindTableGlobal(const char* name, bool indirect = false);
+
         // Game-thread upkeep for the two overrides above: applies (or
         // restores) whichever changed since the last call, retrying every
         // frame until a write actually lands (the tables may not be resolved

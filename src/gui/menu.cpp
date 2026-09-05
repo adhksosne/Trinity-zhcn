@@ -3038,6 +3038,8 @@ namespace trinity::gui
         ui::Begin();
 
         bool save = false;
+        static ULONGLONG s_lastScaleChange = 0;
+        static float s_appliedScale = st.menuScale;
 
         // Menus --- System -------------------------------------------------
         // Debounce the Menu Scale font-atlas rebuild: dragging the slider

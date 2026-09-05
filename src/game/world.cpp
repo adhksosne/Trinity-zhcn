@@ -22,7 +22,58 @@ namespace trinity::game
 
     namespace
     {
+        // Reinterpret a float as its 32-bit pattern for a raw Write32.
+        uint32_t FloatBits(float f)
+        {
+            uint32_t bits = 0;
+            std::memcpy(&bits, &f, sizeof(bits));
+            return bits;
+        }
 
+        float Clamp(float v, float lo, float hi)
+        {
+            return v < lo ? lo : (v > hi ? hi : v);
+        }
+
+        // Native FrameTimerUpdate hook - controls true engine time scale multiplier
+        using FrameTimerUpdate_t = void(__fastcall*)(void* appMgr);
+        FrameTimerUpdate_t oFrameTimerUpdate = nullptr;
+        void* g_frameTimerUpdateTarget = nullptr;
+
+        void __fastcall hkFrameTimerUpdate(void* appMgr)
+        {
+            if (oFrameTimerUpdate)
+                oFrameTimerUpdate(appMgr);
+
+            if (!appMgr) return;
+
+            const State& st = State::Get();
+            if (st.gameSpeed && std::fabs(st.gameSpeedMult - 1.0f) > 0.01f)
+            {
+                __try
+                {
+                    uintptr_t app = reinterpret_cast<uintptr_t>(appMgr);
+                    uintptr_t timeStruct = 0;
+                    if (mem::ReadPtr(app + 0x60, &timeStruct) && timeStruct >= kMinPointer)
+                    {
+                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
+                        float dt = 0.0f;
+                        uint32_t bits = 0;
+                        if (mem::Read32(timeStruct + kOff_TimeStruct_Delta, &bits))
+                        {
+                            std::memcpy(&dt, &bits, sizeof(dt));
+                            if (dt > 0.0001f && dt < 1.0f)
+                            {
+                                const float newDt = dt * mult;
+                                mem::Write32(timeStruct + kOff_TimeStruct_Delta, FloatBits(newDt));
+                                mem::Write32(timeStruct + kOff_TimeStruct_ScaledDelta, FloatBits(newDt));
+                            }
+                        }
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
+            }
+        }
 
         // Master field-clock globals (client / server realm), each the base of
         // a 32-byte int32 time struct (day/hour/min/sec). Zero if the signature
@@ -67,64 +118,6 @@ namespace trinity::game
             if (State::Get().timeFrozen)
                 delta = 0.0f; // clock stops accruing; sun + numeric clock hold
             oFieldTimeTick(mgr, delta, d2);
-        }
-
-        // Reinterpret a float as its 32-bit pattern for a raw Write32.
-        uint32_t FloatBits(float f)
-        {
-            uint32_t bits = 0;
-            std::memcpy(&bits, &f, sizeof(bits));
-            return bits;
-        }
-
-        float Clamp(float v, float lo, float hi)
-        {
-            return v < lo ? lo : (v > hi ? hi : v);
-        }
-
-        // --- Game Speed: native FrameTimerUpdate hook ------------------------
-        // Ported from upstream v1.3.2: instead of driving the engine's time
-        // mode/multiplier fields, scale the frame delta the timer computed
-        // this frame (Delta/ScaledDelta) - survives high multipliers and the
-        // engine's own scaling logic. oFrameTimerUpdate runs first so the
-        // engine has already produced dt, then we overwrite it.
-        using FrameTimerUpdate_t = void(__fastcall*)(void* appMgr);
-        FrameTimerUpdate_t oFrameTimerUpdate = nullptr;
-        void* g_frameTimerUpdateTarget = nullptr;
-
-        void __fastcall hkFrameTimerUpdate(void* appMgr)
-        {
-            if (oFrameTimerUpdate)
-                oFrameTimerUpdate(appMgr);
-
-            if (!appMgr) return;
-
-            const State& st = State::Get();
-            if (st.gameSpeed && std::fabs(st.gameSpeedMult - 1.0f) > 0.01f)
-            {
-                __try
-                {
-                    uintptr_t app = reinterpret_cast<uintptr_t>(appMgr);
-                    uintptr_t timeStruct = 0;
-                    if (mem::ReadPtr(app + 0x60, &timeStruct) && timeStruct >= kMinPointer)
-                    {
-                        const float mult = Clamp(st.gameSpeedMult, 0.1f, 10.0f);
-                        float dt = 0.0f;
-                        uint32_t bits = 0;
-                        if (mem::Read32(timeStruct + kOff_TimeStruct_Delta, &bits))
-                        {
-                            std::memcpy(&dt, &bits, sizeof(dt));
-                            if (dt > 0.0001f && dt < 1.0f)
-                            {
-                                const float newDt = dt * mult;
-                                mem::Write32(timeStruct + kOff_TimeStruct_Delta, FloatBits(newDt));
-                                mem::Write32(timeStruct + kOff_TimeStruct_ScaledDelta, FloatBits(newDt));
-                            }
-                        }
-                    }
-                }
-                __except (EXCEPTION_EXECUTE_HANDLER) {}
-            }
         }
 
         bool ReadI32(uintptr_t addr, int* out)
@@ -459,7 +452,9 @@ namespace trinity::game
     {
         bool ok = true;
 
-        const uintptr_t bodyAddr = mem::FindPattern(kSig_FrameTimerBody);
+        uintptr_t bodyAddr = mem::FindPattern(kSig_FrameTimerBody);
+        if (!bodyAddr)
+            bodyAddr = mem::FindPattern(kSig_FrameTimerBody_Pre201);
         if (bodyAddr)
         {
             uintptr_t funcEntry = 0;
@@ -515,10 +510,14 @@ namespace trinity::game
         // which holds the numeric clock)...
         // Independent of both the globals above and Game Speed - each can drift
         // without disabling the others.
-        if (!mem::InstallHook("world: field-time tick", kSig_FieldTimeTick,
-                              "Freeze Time of Day disabled", hkFieldTimeTick,
-                              &oFieldTimeTick, &g_fieldTimeTickTarget))
-            ok = false;
+        if (!mem::InstallHook("world: field-time tick", kSig_FieldTimeTick, "",
+                              hkFieldTimeTick, &oFieldTimeTick, &g_fieldTimeTickTarget))
+        {
+            if (!mem::InstallHook("world: field-time tick (pre-2.01)", kSig_FieldTimeTick_Pre201,
+                                  "Freeze Time of Day disabled", hkFieldTimeTick,
+                                  &oFieldTimeTick, &g_fieldTimeTickTarget))
+                ok = false;
+        }
 
         // ...and the render-manager clamp holds the visible SUN (the field-time
         // tick alone does not - the sun rides its own accumulator). Resolve the
@@ -559,9 +558,13 @@ namespace trinity::game
         mem::InstallHook("world: dust intensity", kSig_WeatherDust,
                          "Dust control disabled", hkGetDustIntensity,
                          &oGetDustIntensity, &g_dustIntensityTarget);
-        mem::InstallHook("world: wind pack", kSig_WindPack,
-                         "Cloud and Fog control disabled", hkWindPack,
-                         &oWindPack, &g_windPackTarget);
+        if (!mem::InstallHook("world: wind pack", kSig_WindPack, nullptr,
+                              hkWindPack, &oWindPack, &g_windPackTarget))
+        {
+            mem::InstallHook("world: wind pack (pre-2.01)", kSig_WindPack_Pre201,
+                             "Cloud and Fog control disabled", hkWindPack,
+                             &oWindPack, &g_windPackTarget);
+        }
 
         // Safe EnvManager pointer resolution for Atmosphere & Weather (Zero hooks)
         {
@@ -612,6 +615,8 @@ namespace trinity::game
             s_lastPlayerReady = false;
             s_lastNoBounty    = -1;
         }
+
+        // Game Speed is driven on the game thread inside hkFrameTimerUpdate seamlessly.
 
         // Freeze Time of Day: the field-time tick hook (hkFieldTimeTick) holds
         // the NUMERIC clock, but the visible SUN rides the render manager's own

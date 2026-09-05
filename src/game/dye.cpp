@@ -231,6 +231,20 @@ namespace trinity::game
             uintptr_t desc = 0, array = 0;
             uint32_t count = 0;
 
+            // TU 2.01+ (+0x90) Priority
+            if (ReadPtr(comp + 0x90, &desc) && desc >= kMinPointer &&
+                ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
+                Read32(desc + kOff_EquipTable_Count, &count) && count > 0 && count <= 64)
+            {
+                outArray = array;
+                outCount = count;
+                if (outStride) *outStride = 0xD0;
+                if (outSlotTag) *outSlotTag = 0xC8;
+                if (outDyeData) *outDyeData = 0x78;
+                if (outDyeCount) *outDyeCount = 0x80;
+                return true;
+            }
+
             // Modern TU 1.17+ (+0x80)
             if (ReadPtr(comp + 0x80, &desc) && desc >= kMinPointer &&
                 ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
@@ -2257,7 +2271,7 @@ namespace trinity::game
         // Validates Item TypeID to ensure dye colors do not bleed onto different items equipped in the same slot.
         static ULONGLONG s_lastRestore = 0;
         const ULONGLONG now = GetTickCount64();
-        if (now - s_lastRestore > 1200)
+        if (now - s_lastRestore > 2500)
         {
             s_lastRestore = now;
 

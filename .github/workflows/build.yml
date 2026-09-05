@@ -2,7 +2,7 @@ name: Build Trinity (zh-CN)
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, merge2760 ]
     paths:
       - 'src/**'
       - 'languages/**'

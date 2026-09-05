@@ -28,6 +28,7 @@ namespace trinity::ui
     // Live scale preview (no font rebuild); the atlas rebuild is debounced in
     // menu.cpp so dragging Menu Scale doesn't rebuild fonts every frame.
     void SetScale(float scale);
+    void ResetNavRepeat();
     extern bool g_needFontRebuild;
 
     // Rising edge of the configured controller open combo on pad 0

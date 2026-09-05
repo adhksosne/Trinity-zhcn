@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include "../core/logger.h"
+#include "version_mapping.h"
 #include "../mem/scanner.h"
 #include "../game/offsets.h"
 
@@ -57,18 +58,14 @@ namespace trinity::core
             const bool hasLegacyDyeBatch = (mem::FindPattern(game::kSig_DyeApplyBatch_Legacy) != 0);
 
             // TU 2.00.00+: the PE revision moves per title update
-            // (1.0.0.2474 = TU 1.18.02, 1.0.0.2625 = TU 2.00.00).
-            if (g_versionInfo.revision >= 2658)
+            // (1.0.0.2474 = TU 1.18.02, 1.0.0.2625 = TU 2.00.00,
+            //  1.0.0.2658 = TU 2.00.01, 1.0.0.2692 = TU 2.00.02,
+            //  1.0.0.2760 = TU 2.01.00).
+            if (const char* modernTU = ModernTitleUpdateForRevision(g_versionInfo.revision))
             {
                 g_versionInfo.tu = GameTU::TU_1_18_01_Plus; // modern layout family
                 snprintf(g_versionInfo.displayStr, sizeof(g_versionInfo.displayStr),
-                         "红色沙漠 TU 2.00.01");
-            }
-            else if (g_versionInfo.revision >= 2625)
-            {
-                g_versionInfo.tu = GameTU::TU_1_18_01_Plus; // modern layout family
-                snprintf(g_versionInfo.displayStr, sizeof(g_versionInfo.displayStr),
-                         "红色沙漠 TU 2.00.00");
+                         "红色沙漠 TU %s (Active)", modernTU);
             }
             else if (hasModernDyeBatch)
             {
