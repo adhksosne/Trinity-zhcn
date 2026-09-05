@@ -21,6 +21,7 @@
 #include <MinHook.h>
 
 #include "offsets.h"
+#include "map_marker.h"
 #include "player.h"
 #include "world.h"
 #include "inventory.h"
@@ -157,6 +158,7 @@ namespace trinity::game
         std::atomic<float> g_pendingDestY{0.0f};
         std::atomic<float> g_pendingDestZ{0.0f};
         uintptr_t g_markerOriginAddress = 0;
+        uintptr_t g_markerDestinationGlobal = 0;
         int g_markerCachedCandidate = -1;
         bool g_markerReady = false;
         bool g_markerProtectionReady = false;
@@ -534,6 +536,7 @@ namespace trinity::game
             g_markerProtectFlag.store(0, std::memory_order_relaxed);
             g_protectionStartTime.store(0, std::memory_order_relaxed);
             g_markerCachedCandidate = -1;
+            g_markerDestinationGlobal = 0;
             for (auto& slot : g_markerCandidates)
             {
                 slot.writer.store(0, std::memory_order_relaxed);
@@ -544,6 +547,11 @@ namespace trinity::game
             const auto markers = mem::FindAllMatches(kSig_MarkerPattern, 16);
             const auto origins = mem::FindAllMatches(kSig_MarkerOriginPrefix, 32);
             const auto protections = mem::FindAllMatches(kSig_MarkerProtection, 2);
+            const auto destinationRefs = mem::FindAllMatches(
+                "48 8B 05 ?? ?? ?? ?? 48 8B 98 A8 00 00 00 C4 C1 78 10 04 24", 2);
+
+            if (destinationRefs.size() == 1)
+                g_markerDestinationGlobal = mem::ResolveRipAt(destinationRefs.front(), 7);
 
             if (markers.size() != kExpected_MarkerMatches || origins.size() < 6)
             {
@@ -633,6 +641,16 @@ namespace trinity::game
             return FiniteCoordinate(value) && (value.x != 0.0f || value.y != 0.0f || value.z != 0.0f);
         }
 
+        bool ReadMarkerPointer(uintptr_t address, uintptr_t* out)
+        {
+            return mem::ReadPtr(address, out);
+        }
+
+        bool ReadMarkerPosition(uintptr_t address, float* out)
+        {
+            return mem::ReadVec3(address, out);
+        }
+
         bool ReadMarkerCandidate(size_t index, Vec3& value, uint64_t& outSeq)
         {
             if (index >= g_markerCandidates.size()) return false;
@@ -653,6 +671,17 @@ namespace trinity::game
 
         bool FindActiveMarker(Vec3& marker)
         {
+            if (g_markerDestinationGlobal != 0)
+            {
+                MapMarkerPosition current{};
+                if (ReadCurrentMapMarker(g_markerDestinationGlobal, &ReadMarkerPointer,
+                                         &ReadMarkerPosition, current))
+                {
+                    marker = {current.x, current.y, current.z};
+                    return true;
+                }
+            }
+
             uint64_t bestSeq = 0;
             Vec3 bestMarker{};
             bool found = false;

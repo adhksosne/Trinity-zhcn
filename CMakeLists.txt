@@ -117,6 +117,10 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(TrinityMapMarkerTests tests/map_marker_tests.cpp)
+    target_include_directories(TrinityMapMarkerTests PRIVATE src)
+    add_test(NAME TrinityMapMarkerTests COMMAND TrinityMapMarkerTests)
+
     add_executable(TrinityReadinessTests
         tests/readiness_tests.cpp
         src/core/readiness.cpp
