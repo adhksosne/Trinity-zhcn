@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <vector>
 
 namespace trinity
@@ -20,12 +19,6 @@ namespace trinity
     struct State
     {
         bool menuOpen = false;
-
-        // When the menu was closed (GetTickCount64). The XInput hook keeps
-        // neutralizing the menu's pad buttons for a short window after this,
-        // so the button that closed the menu (e.g. B -> roll) never leaks to
-        // the game. 0 = no recent close.
-        uint64_t menuCloseAt = 0;
 
         // True while a ui::Search row is capturing typed text. The window
         // hook swallows ALL keyboard input from the game while this is set,
@@ -52,12 +45,12 @@ namespace trinity
         bool godMode         = false;
         bool oneHitKill      = false;
         bool infDurability   = false;
-        bool noFallDamage    = false; // disabled by default (opt-in)
+        bool noFallDamage    = true;
         bool infStamina      = false;
         bool infMountStamina = false;
         bool infSpirit       = false;
-        bool easyParry       = false; // Easy Perfect Parry (guard -> perfect parry)
-        bool easyEvade       = false; // Easy Perfect Evade (dodge -> perfect evade)
+        bool easyParry       = false;
+        bool easyEvade       = false;
         bool noBounty        = false;
 
         // Battle-damage multipliers (player.cpp). Applied to the signed HP
@@ -98,10 +91,7 @@ namespace trinity
         // Map Marker Teleport (teleport.cpp). Teleports to the custom waypoint
         // placed on the world map. Rebindable from the Keybinds submenu (default
         // F10 key) and persisted in Trinity.ini. Fallback height is used when the
-        // marker has no elevation (sky insertion). The hotkey is OFF by default:
-        // other fast-travel mods commonly bind the same key (F10), so it must be
-        // enabled explicitly to avoid hijacking their bind.
-        bool         markerTeleportHotkey = false;
+        // marker has no elevation (sky insertion).
         int          markerTeleportKeyVk  = 0x79;  // VK_F10
         unsigned int markerTeleportPadMask = 0;     // Disabled on pad by default
         float        markerFallbackHeight = 1200.0f;

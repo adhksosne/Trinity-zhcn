@@ -1,7 +1,6 @@
 #include "xinput_hook.h"
 
 #include <MinHook.h>
-#include <Windows.h>
 
 #include "../core/state.h"
 
@@ -20,13 +19,6 @@ namespace trinity::hooks
     // Any real-state trampoline, used by the menu to read the pad it's blocking.
     static XInputGetState_t g_read = nullptr;
 
-    // How long after the menu closes we keep neutralizing the menu buttons.
-    // The press that closed the menu (e.g. B on the last page) would otherwise
-    // reach the game as a fresh button press and roll/dodge the character.
-    // Short window only: a still-held B is covered by the release check below,
-    // so the player can act again almost immediately after closing.
-    constexpr ULONGLONG kMenuCloseEatWindowMs = 150;
-
     static void Neutralize(XINPUT_STATE* s)
     {
         // Only strip the buttons the menu itself uses (d-pad, A/B/X, and the
@@ -39,34 +31,7 @@ namespace trinity::hooks
             XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B | XINPUT_GAMEPAD_X |
             XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER;
 
-        const State& st     = State::Get();
-        const ULONGLONG now = GetTickCount64();
-
-        // Eat while the menu is open, plus a short window after it closes.
-        // If the button that closed it (B) is still physically held past the
-        // window, keep eating until it is released, so a long-held close press
-        // can never roll the character either.
-        static bool s_eatCloseHold = false;
-        if (st.menuOpen)
-        {
-            s_eatCloseHold = false;
-        }
-        else if (st.menuCloseAt != 0 && now >= st.menuCloseAt)
-        {
-            const ULONGLONG age = now - st.menuCloseAt;
-            if (age < kMenuCloseEatWindowMs)
-                s_eatCloseHold = true;                            // in-window
-            else if (!(s->Gamepad.wButtons & XINPUT_GAMEPAD_B))
-                s_eatCloseHold = false;                           // released
-            // age past window && B still held: keep s_eatCloseHold true
-        }
-        else if (!(s->Gamepad.wButtons & XINPUT_GAMEPAD_B))
-        {
-            s_eatCloseHold = false;
-        }
-
-        const bool eatMenuKeys = st.menuOpen || s_eatCloseHold;
-        if (eatMenuKeys && (s->Gamepad.wButtons & kMenuButtons))
+        if (s->Gamepad.wButtons & kMenuButtons)
         {
             s->Gamepad.wButtons &= ~kMenuButtons;
             ++s->dwPacketNumber; // bump so the game registers the state as changed
@@ -79,7 +44,7 @@ namespace trinity::hooks
         static DWORD WINAPI NAME(DWORD i, XINPUT_STATE* s)                 \
         {                                                                  \
             const DWORD r = ORIG(i, s);                                    \
-            if (r == ERROR_SUCCESS && s)                                   \
+            if (r == ERROR_SUCCESS && s && State::Get().menuOpen)         \
                 Neutralize(s);                                             \
             return r;                                                      \
         }
@@ -171,76 +136,5 @@ namespace trinity::hooks
         if (g_read)
             return g_read(userIndex, state);
         return XInputGetState(userIndex, state); // hooks not up yet
-    }
-
-    // --- Cached pad scan ------------------------------------------------------
-    // See header for the rationale. Plain statics (not atomics): the two
-    // callers are the render thread and the game tick; a benign race at worst
-    // causes one redundant scan window, never a wrong merged state.
-    static DWORD     g_liveSlots  = 0;   // bitmask of slots that answered recently
-    static ULONGLONG s_nextRescan = 0;   // next full 4-slot scan deadline
-    static ULONGLONG s_cacheT     = 0;   // when the merged state below was taken
-    static bool      s_cacheOk    = false;
-    static XINPUT_STATE s_cache   = {};
-
-    bool ReadPadsCached(XINPUT_STATE& merged)
-    {
-        const ULONGLONG now = GetTickCount64();
-
-        if (now < s_cacheT + 4 && now >= s_cacheT)
-        {
-            merged = s_cache;           // within the refresh window
-            return s_cacheOk;
-        }
-
-        if (now >= s_nextRescan)
-        {
-            DWORD mask = 0;
-            for (DWORD i = 0; i < 4; ++i)
-            {
-                XINPUT_STATE st;
-                if (XInputReadReal(i, &st) == ERROR_SUCCESS)
-                    mask |= (1u << i);
-            }
-            g_liveSlots  = mask;
-            s_nextRescan = now + 2000;
-        }
-
-        ZeroMemory(&merged, sizeof(merged));
-        bool any = false;
-        for (DWORD i = 0; i < 4; ++i)
-        {
-            if (!(g_liveSlots & (1u << i)))
-                continue;
-            XINPUT_STATE st;
-            if (XInputReadReal(i, &st) == ERROR_SUCCESS)
-            {
-                any = true;
-                merged.Gamepad.wButtons |= st.Gamepad.wButtons;
-                if (st.Gamepad.bLeftTrigger  > merged.Gamepad.bLeftTrigger)
-                    merged.Gamepad.bLeftTrigger  = st.Gamepad.bLeftTrigger;
-                if (st.Gamepad.bRightTrigger > merged.Gamepad.bRightTrigger)
-                    merged.Gamepad.bRightTrigger = st.Gamepad.bRightTrigger;
-                if (merged.Gamepad.sThumbLX == 0 && merged.Gamepad.sThumbLY == 0)
-                {
-                    merged.Gamepad.sThumbLX = st.Gamepad.sThumbLX;
-                    merged.Gamepad.sThumbLY = st.Gamepad.sThumbLY;
-                }
-                if (merged.Gamepad.sThumbRX == 0 && merged.Gamepad.sThumbRY == 0)
-                {
-                    merged.Gamepad.sThumbRX = st.Gamepad.sThumbRX;
-                    merged.Gamepad.sThumbRY = st.Gamepad.sThumbRY;
-                }
-            }
-            else
-            {
-                g_liveSlots &= ~(1u << i); // dropped; the 2s rescan re-adds it
-            }
-        }
-
-        s_cache   = merged;
-        s_cacheOk = any;
-        s_cacheT  = now;
-        return any;
     }
 }

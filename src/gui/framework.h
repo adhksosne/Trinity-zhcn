@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../game/equipment.h"
-#include "../game/dye.h"
 
 namespace trinity::ui
 {
@@ -25,9 +24,8 @@ namespace trinity::ui
     // Loads fonts and sets the UI scale. Call once, right after
     // ImGui::CreateContext and before the first NewFrame.
     void InitStyle(float uiScale);
-    // Live scale preview (no font rebuild); the atlas rebuild is debounced in
-    // menu.cpp so dragging Menu Scale doesn't rebuild fonts every frame.
     void SetScale(float scale);
+    void ResetNavRepeat();
     extern bool g_needFontRebuild;
 
     // Rising edge of the configured controller open combo on pad 0
@@ -95,7 +93,6 @@ namespace trinity::ui
                            int refineLevel = -1, int durability = -1,
                            int maxSockets = 0, int unlockedSockets = 0, int filledSockets = 0);
     void SetEquipTooltip(const game::Equipment::SlotInfo& si);
-    void SetDyeSlotTooltip(const game::Dye::SlotInfo& si);
     void SetAbyssGearTooltip(const char* name, const char* icon, const char* buff);
     void SetDyePreviewTooltip(const char* name, const char* icon, const char* subtitle,
                               int activeZone, uint32_t activeRGB, int activeMaterial, int activeCondition,

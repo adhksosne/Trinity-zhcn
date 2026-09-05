@@ -74,7 +74,6 @@ namespace trinity
             else if (!strcmp(key, "flyDownPadMask"))       vals.flyDownPadMask      = static_cast<unsigned int>(strtoul(val, nullptr, 0));
             else if (!strcmp(key, "markerTeleportKeyVk"))  vals.markerTeleportKeyVk = atoi(val);
             else if (!strcmp(key, "markerTeleportPadMask"))vals.markerTeleportPadMask= static_cast<unsigned int>(strtoul(val, nullptr, 0));
-            else if (!strcmp(key, "markerTeleportHotkey")) vals.markerTeleportHotkey= atoi(val) != 0;
             else if (!strcmp(key, "markerFallbackHeight")) vals.markerFallbackHeight = strtof(val, nullptr);
             else if (!strcmp(key, "autoSave"))            vals.autoSave            = atoi(val) != 0;
             else if (!strcmp(key, "godMode"))             vals.godMode             = atoi(val) != 0;
@@ -220,7 +219,6 @@ namespace trinity
         if (vals.markerTeleportKeyVk >= 0 && vals.markerTeleportKeyVk <= 0xFF)
             st.markerTeleportKeyVk = vals.markerTeleportKeyVk;
         st.markerTeleportPadMask = vals.markerTeleportPadMask & 0x3FFFF;
-        st.markerTeleportHotkey  = vals.markerTeleportHotkey;
         if (vals.markerFallbackHeight >= 50.0f && vals.markerFallbackHeight <= 5000.0f)
             st.markerFallbackHeight = vals.markerFallbackHeight;
 
@@ -306,7 +304,6 @@ namespace trinity
                 "flyDownPadMask=%u\n"
                 "markerTeleportKeyVk=%d\n"
                 "markerTeleportPadMask=%u\n"
-                "markerTeleportHotkey=%d\n"
                 "markerFallbackHeight=%.3f\n"
                 "autoSave=%d\n"
                 "godMode=%d\n"
@@ -372,7 +369,6 @@ namespace trinity
                 st.flyDownPadMask,
                 st.markerTeleportKeyVk,
                 st.markerTeleportPadMask,
-                st.markerTeleportHotkey ? 1 : 0,
                 st.markerFallbackHeight,
                 st.autoSave ? 1 : 0,
                 st.godMode ? 1 : 0,
@@ -503,6 +499,5 @@ namespace trinity
         st.flyDownPadMask         = def.flyDownPadMask;
         st.markerTeleportKeyVk    = def.markerTeleportKeyVk;
         st.markerTeleportPadMask  = def.markerTeleportPadMask;
-        st.markerTeleportHotkey   = def.markerTeleportHotkey;
     }
 }

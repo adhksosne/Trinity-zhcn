@@ -17,10 +17,6 @@
 #include "../core/state.h"
 #include "../core/version.h"
 #include "../core/localization.h"
-#include "../core/logger.h"
-#include "../core/languages_embedded.h"
-#include "../game/inventory.h"
-#include "../game/dye.h"
 #include "../hooks/xinput_hook.h"
 
 namespace trinity::ui
@@ -72,14 +68,6 @@ namespace trinity::ui
     ImFont*  g_fontBold  = nullptr;
     float    g_scale     = 1.0f;
     bool     g_needFontRebuild = false;
-
-    // Immediate preview scale (no font-atlas rebuild). Dragging Menu Scale
-    // updates g_scale live so the layout responds; the atlas is rebuilt once,
-    // debounced, after the drag settles (see menu.cpp).
-    void SetScale(float scale)
-    {
-        g_scale = scale < 0.5f ? 0.5f : (scale > 3.0f ? 3.0f : scale);
-    }
     float    g_x = 0.0f, g_y = 0.0f, g_width = 0.0f, g_listTop = 0.0f, g_menuTop = 0.0f;
     int      g_rowIndex  = 0;
     char     g_selectedDesc[256] = {};
@@ -130,9 +118,9 @@ namespace trinity::ui
 
         const char* charName = game::Equipment::CharacterName(game::Equipment::GetActiveCharacter());
         if (charName && charName[0])
-            snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s  •  %s", LOC(si.slotName), LOC(charName));
+            snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s  •  %s", si.slotName, charName);
         else
-            snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s", LOC(si.slotName));
+            snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s", si.slotName);
 
         g_selectedTooltip.refineLevel     = si.refineLevel;
         g_selectedTooltip.durability      = si.durability;
@@ -164,7 +152,7 @@ namespace trinity::ui
         snprintf(g_selectedTooltip.name, sizeof(g_selectedTooltip.name), "%s", name);
         if (icon && icon[0])
             snprintf(g_selectedTooltip.icon, sizeof(g_selectedTooltip.icon), "%s", icon);
-        snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s  •  %s", LOC("Abyss Gear"), LOC("Socket Power"));
+        snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "Abyss Gear  •  Socket Power");
         if (buff && buff[0])
             snprintf(g_selectedTooltip.gearBuff, sizeof(g_selectedTooltip.gearBuff), "%s", buff);
     }
@@ -197,53 +185,6 @@ namespace trinity::ui
                 g_selectedTooltip.dyeZoneRGB[i] = zoneColors[i];
                 g_selectedTooltip.dyeZoneDyed[i] = zoneDyed ? zoneDyed[i] : false;
             }
-        }
-    }
-
-    void SetDyeSlotTooltip(const game::Dye::SlotInfo& si)
-    {
-        g_selectedTooltip = {};
-        if (!si.itemName[0]) return;
-
-        g_selectedTooltip.valid         = true;
-        g_selectedTooltip.isDye         = true;
-        snprintf(g_selectedTooltip.name, sizeof(g_selectedTooltip.name), "%s", si.itemName);
-        snprintf(g_selectedTooltip.icon, sizeof(g_selectedTooltip.icon), "%s", si.icon);
-        snprintf(g_selectedTooltip.subtitle, sizeof(g_selectedTooltip.subtitle), "%s", LOC(si.slotName));
-
-        g_selectedTooltip.dyeTotalZones = (si.maxZones > 12) ? 12 : ((si.maxZones < 1) ? 1 : si.maxZones);
-
-        // One pass reads all 12 zones; calling GetChannel per zone re-ran the
-        // expensive per-character component lookup (esp. off-screen companions
-        // Damiane/Oongka) 13x per hovered row, which made the list crawl.
-        game::Dye::Channel all[game::kDye_MaxChannels] = {};
-        const uint32_t mask = game::Dye::ReadChannels(si.tag, all);
-
-        int firstDyed = -1;
-        for (int z = 0; z < 12; ++z)
-        {
-            if (mask & (1u << z))
-            {
-                g_selectedTooltip.dyeZoneRGB[z] = (uint32_t(all[z].r) << 16) | (uint32_t(all[z].g) << 8) | all[z].b;
-                g_selectedTooltip.dyeZoneDyed[z] = true;
-                if (firstDyed < 0) firstDyed = z;
-            }
-        }
-        // Preview the "active colour" card like the editor does: default to the
-        // first dyed zone (or zone 1 when nothing is dyed yet), so the list
-        // tooltip shows the real colour / material, not a blank black card.
-        const int act = (firstDyed >= 0) ? firstDyed : 0;
-        if (mask & (1u << act))
-        {
-            const game::Dye::Channel& ac = all[act];
-            g_selectedTooltip.dyeActiveRGB = (uint32_t(ac.r) << 16) | (uint32_t(ac.g) << 8) | ac.b;
-            g_selectedTooltip.dyeActiveZone = act + 1;
-            g_selectedTooltip.dyeMaterial = (ac.materialId <= 10) ? ac.materialId : 0;
-            g_selectedTooltip.dyeCondition = (ac.repair <= 127) ? (100 - ac.repair * 100 / 127) : 100;
-        }
-        else
-        {
-            g_selectedTooltip.dyeActiveZone = (firstDyed >= 0) ? firstDyed + 1 : 0;
         }
     }
 
@@ -290,17 +231,15 @@ namespace trinity::ui
 
     int CurrentTab() { return g_tab; }
 
+    void SetScale(float scale)
+    {
+        g_scale = scale < 0.5f ? 0.5f : (scale > 2.5f ? 2.5f : scale);
+    }
+
     // --- Fonts / style --------------------------------------------------------
     void InitStyle(float uiScale)
     {
-        // Guard NaN (never >= 0.5) and absurd values: on 2160p uiScale = 2.0 *
-        // menuScale, so menuScale 2.5 yields g_scale 5.0 and a ~105pt CJK font
-        // atlas that overflows ImGui and crashes the process (also on reload,
-        // since the value persists in Trinity.ini). Cap at 3.0 and floor NaN.
-        if (!(uiScale >= 0.5f))       g_scale = 1.0f; // NaN / unparsed garbage
-        else if (uiScale > 3.0f)      g_scale = 3.0f; // CJK atlas overflow guard
-        else if (uiScale < 0.5f)      g_scale = 0.5f;
-        else                          g_scale = uiScale;
+        g_scale = uiScale < 0.5f ? 0.5f : (uiScale > 2.5f ? 2.5f : uiScale);
 
         ImGuiIO& io = ImGui::GetIO();
         io.Fonts->Clear(); // Allow runtime rebuilding by clearing existing fonts
@@ -333,14 +272,7 @@ namespace trinity::ui
         const bool hasMeiryo = (GetFileAttributesA(meiryoPath) != INVALID_FILE_ATTRIBUTES);
         const bool hasMeiryoBd = (GetFileAttributesA(meiryobdPath) != INVALID_FILE_ATTRIBUTES);
 
-        // Build a lean, high-speed Chinese glyph range (Common 2500 + all Trinity
-        // menu characters). Built ONCE: the embedded zh table is ALWAYS included
-        // (plus the current language's text), so the atlas covers zh no matter
-        // which language is active at build time - a runtime language switch
-        // therefore never needs an atlas rebuild, and rebuilds (menu scale) keep
-        // reusing this bounded range instead of re-scanning the game's loc blob
-        // in-world, which could push the texture past the 16384px D3D12 limit
-        // and remove the device.
+        // Build a lean, high-speed Chinese glyph range (Common 2500 + all Trinity menu characters)
         static ImVector<ImWchar> s_zhRanges;
         if (s_zhRanges.empty() && hasYahei)
         {
@@ -348,35 +280,6 @@ namespace trinity::ui
             builder.AddRanges(io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
             // Add all extra Chinese characters used in Trinity UI (including 辑, 镶, 嵌, 渊, 斗, 昼, 耀, etc.)
             builder.AddText("霓炫帧编辑装备精炼深渊符文镶嵌斗气落日耀橙矩阵翡翠赛博青蓝快捷键昼夜时间重置孔位个人仓库营地衣柜推进锁定加快减慢运行速度单手双手武器盾牌远程匕首头盔防具披风手套靴子项链戒指眼镜面具骑乘载具料理药水食材药材杂物书籍配方地图通缉令工具货币记忆钥匙封印文物机关控制库库罐诱饵贸易品未分类搜索输入");
-            // The full embedded zh table (includes [Language] Name=简体中文,
-            // which the parsed translations skip but the combo still shows).
-            // NOTE: qualified - this TU is namespace trinity::ui, the table
-            // lives in trinity::loc (plain kEmbeddedZh would not resolve).
-            builder.AddText(loc::kEmbeddedZh);
-            builder.AddText(loc::LoadedTranslationText());
-            game::Inventory::LocBlobInfo blob{};
-            if (game::Inventory::GetLocBlob(&blob) && blob.data && blob.size)
-            {
-                const char* p = blob.data;
-                const char* end = blob.data + blob.size;
-                while (p < end)
-                {
-                    const uint8_t c = static_cast<uint8_t>(*p);
-                    uint32_t cp = 0;
-                    int len = 0;
-                    if (c < 0x80) { ++p; continue; }
-                    else if ((c >> 5) == 0x6 && p + 1 < end)
-                    { cp = ((c & 0x1Fu) << 6) | (p[1] & 0x3Fu); len = 2; }
-                    else if ((c >> 4) == 0xE && p + 2 < end)
-                    { cp = ((c & 0x0Fu) << 12) | ((p[1] & 0x3Fu) << 6) | (p[2] & 0x3Fu); len = 3; }
-                    else if ((c >> 3) == 0x1E && p + 3 < end)
-                    { cp = ((c & 0x07u) << 18) | ((p[1] & 0x3Fu) << 12) | ((p[2] & 0x3Fu) << 6) | (p[3] & 0x3Fu); len = 4; }
-                    else { ++p; continue; }
-                    p += len;
-                    if ((cp >= 0x3400 && cp <= 0x9FFF) || (cp >= 0xF900 && cp <= 0xFAFF))
-                        builder.AddChar(static_cast<ImWchar>(cp));
-                }
-            }
             builder.BuildRanges(&s_zhRanges);
         }
 
@@ -461,27 +364,27 @@ namespace trinity::ui
         const char* primaryBody = segoePath;
         const char* primaryBold = seguisbPath;
         const char* primaryTitle = segoeuibPath;
-        float bodySize  = (21.0f * g_scale < 42.0f) ? 21.0f * g_scale : 42.0f;
-        float boldSize  = (21.0f * g_scale < 42.0f) ? 21.0f * g_scale : 42.0f;
-        float titleSize = (30.0f * g_scale < 60.0f) ? 30.0f * g_scale : 60.0f;
+        float bodySize = 21.0f * g_scale;
+        float boldSize = 21.0f * g_scale;
+        float titleSize = 30.0f * g_scale;
 
         if (st.useCustomFont && st.customFont[0] != '\0' && GetFileAttributesA(st.customFont) != INVALID_FILE_ATTRIBUTES)
         {
             primaryBody = st.customFont;
             primaryBold = st.customFont;
             primaryTitle = st.customFont;
-            bodySize  = (22.0f * g_scale < 42.0f) ? 22.0f * g_scale : 42.0f;
-            boldSize  = (22.0f * g_scale < 42.0f) ? 22.0f * g_scale : 42.0f;
-            titleSize = (35.0f * g_scale < 60.0f) ? 35.0f * g_scale : 60.0f;
+            bodySize = 22.0f * g_scale;
+            boldSize = 22.0f * g_scale;
+            titleSize = 35.0f * g_scale;
         }
         else if (st.builtInFontIndex == 1 && GetFileAttributesA(impactPath) != INVALID_FILE_ATTRIBUTES)
         {
             primaryBody = impactPath;
             primaryBold = impactPath;
             primaryTitle = impactPath;
-            bodySize  = (22.0f * g_scale < 42.0f) ? 22.0f * g_scale : 42.0f;
-            boldSize  = (22.0f * g_scale < 42.0f) ? 22.0f * g_scale : 42.0f;
-            titleSize = (34.0f * g_scale < 60.0f) ? 34.0f * g_scale : 60.0f;
+            bodySize = 22.0f * g_scale;
+            boldSize = 22.0f * g_scale;
+            titleSize = 34.0f * g_scale;
         }
         else if (st.builtInFontIndex == 2 && (GetFileAttributesA(georgiaBdPath) != INVALID_FILE_ATTRIBUTES || GetFileAttributesA(georgiaPath) != INVALID_FILE_ATTRIBUTES))
         {
@@ -489,9 +392,9 @@ namespace trinity::ui
             primaryBody = gPath;
             primaryBold = gPath;
             primaryTitle = gPath;
-            bodySize  = (21.0f * g_scale < 42.0f) ? 21.0f * g_scale : 42.0f;
-            boldSize  = (21.0f * g_scale < 42.0f) ? 21.0f * g_scale : 42.0f;
-            titleSize = (32.0f * g_scale < 60.0f) ? 32.0f * g_scale : 60.0f;
+            bodySize = 21.0f * g_scale;
+            boldSize = 21.0f * g_scale;
+            titleSize = 32.0f * g_scale;
         }
 
         g_fontBody = LoadFontWithFallbacks(primaryBody,
@@ -517,33 +420,62 @@ namespace trinity::ui
         if (!g_fontTitle) g_fontTitle = g_fontBold;
 
         io.FontDefault = g_fontBody;
-
-        // Diagnostics: force the atlas build so we can log its size and verify
-        // the CJK pipeline (glyph coverage) - if Chinese ever renders as '?' or
-        // tofu boxes again, this line tells us whether the atlas or the string
-        // data is at fault.
-        io.Fonts->Build();
-        {
-            char hex[49];
-            const char* probeText = loc::Tr("PLAYER");
-            for (int i = 0; i < 16 && probeText[i]; ++i)
-                snprintf(hex + i * 3, 4, "%02X ", (unsigned char)probeText[i]);
-            LOG_OK("fonts: atlas=%dx%d bodyGlyphs=%u zhRanges=%d probe(0x73A9)=%s Tr(PLAYER)=%s",
-                   io.Fonts->TexWidth, io.Fonts->TexHeight,
-                   g_fontBody ? static_cast<unsigned>(g_fontBody->Glyphs.size()) : 0u,
-                   static_cast<int>(s_zhRanges.Size),
-                   (g_fontBody && g_fontBody->FindGlyph(0x73A9)) ? "FOUND" : "MISSING",
-                   hex);
-        }
     }
 
     // --- Controller -----------------------------------------------------------
-    // Delegates to the cached poller in the XInput hook: polling all four
-    // slots from every call site every frame was eating milliseconds per
-    // frame with a controller attached (see hooks::ReadPadsCached).
+    // XInputGetState on a disconnected slot is expensive, so back off between
+    // reconnect attempts.
     static bool PollPad(XINPUT_STATE& out)
     {
-        return hooks::ReadPadsCached(out);
+        static bool      s_connected = false;
+        static ULONGLONG s_nextRetry = 0;
+
+        const ULONGLONG now = GetTickCount64();
+        if (!s_connected && now < s_nextRetry)
+            return false;
+
+        ZeroMemory(&out, sizeof(out));
+        bool anyConnected = false;
+
+        // Read the REAL pad across slots 0-3, bypassing the menu-open neutralisation
+        // the XInput hook applies to the game. Merge states so an idle virtual controller
+        // on slot 0 doesn't mask a real controller on slot 1.
+        for (DWORD i = 0; i < 4; ++i)
+        {
+            XINPUT_STATE temp;
+            if (hooks::XInputReadReal(i, &temp) == ERROR_SUCCESS)
+            {
+                anyConnected = true;
+                out.Gamepad.wButtons |= temp.Gamepad.wButtons;
+                
+                if (temp.Gamepad.bLeftTrigger > out.Gamepad.bLeftTrigger)
+                    out.Gamepad.bLeftTrigger = temp.Gamepad.bLeftTrigger;
+                if (temp.Gamepad.bRightTrigger > out.Gamepad.bRightTrigger)
+                    out.Gamepad.bRightTrigger = temp.Gamepad.bRightTrigger;
+                    
+                // Use the thumbstick values from the first controller that has them moved
+                if (out.Gamepad.sThumbLX == 0 && out.Gamepad.sThumbLY == 0)
+                {
+                    out.Gamepad.sThumbLX = temp.Gamepad.sThumbLX;
+                    out.Gamepad.sThumbLY = temp.Gamepad.sThumbLY;
+                }
+                if (out.Gamepad.sThumbRX == 0 && out.Gamepad.sThumbRY == 0)
+                {
+                    out.Gamepad.sThumbRX = temp.Gamepad.sThumbRX;
+                    out.Gamepad.sThumbRY = temp.Gamepad.sThumbRY;
+                }
+            }
+        }
+        
+        if (anyConnected)
+        {
+            s_connected = true;
+            return true;
+        }
+
+        s_connected = false;
+        s_nextRetry = now + 2000;
+        return false;
     }
 
     unsigned short PadButtons()
@@ -635,6 +567,15 @@ namespace trinity::ui
     static bool PadHeldOver(int slot, ULONGLONG ms)
     {
         return g_padDownAt[slot] != 0 && GetTickCount64() - g_padDownAt[slot] > ms;
+    }
+
+    void ResetNavRepeat()
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            g_padDownAt[i] = 0;
+        }
+        g_nav = {};
     }
 
     // --- Input gathering --------------------------------------------------------
@@ -1153,37 +1094,37 @@ namespace trinity::ui
         {
             switch (k)
             {
-            case RowKind::Action:  return LOC("A select");
-            case RowKind::Toggle:  return LOC("A toggle");
-            case RowKind::ToggleValue: return LOC("A toggle   < > adjust   X reset");
-            case RowKind::Value:   return LOC("< > adjust   X reset");
-            case RowKind::Choice:  return LOC("< > pick");
-            case RowKind::Submenu: return LOC("A open");
-            case RowKind::Search:  return LOC("A type   X clear");
-            case RowKind::Typing:  return LOC("A done   B erase");
-            case RowKind::TypingApply: return LOC("A apply   B erase");
-            case RowKind::Item:    return LOC("< > amount   X remove");
-            case RowKind::ItemAdd: return LOC("< > amount   A add");
-            case RowKind::ValueAction: return LOC("< > amount   A apply   X reset");
-            case RowKind::Bind:    return LOC("< > pick   A rebind   X reset");
+            case RowKind::Action:  return "A select";
+            case RowKind::Toggle:  return "A toggle";
+            case RowKind::ToggleValue: return "A toggle   < > adjust   X reset";
+            case RowKind::Value:   return "< > adjust   X reset";
+            case RowKind::Choice:  return "< > pick";
+            case RowKind::Submenu: return "A open";
+            case RowKind::Search:  return "A type   X clear";
+            case RowKind::Typing:  return "A done   B erase";
+            case RowKind::TypingApply: return "A apply   B erase";
+            case RowKind::Item:    return "< > amount   X remove";
+            case RowKind::ItemAdd: return "< > amount   A add";
+            case RowKind::ValueAction: return "< > amount   A apply   X reset";
+            case RowKind::Bind:    return "< > pick   A rebind   X reset";
             default:               return "";
             }
         }
         switch (k)
         {
-        case RowKind::Action:  return LOC("Enter select");
-        case RowKind::Toggle:  return LOC("Enter toggle");
-        case RowKind::ToggleValue: return LOC("Enter toggle   < > adjust   Del reset");
-        case RowKind::Value:   return LOC("< > adjust   Enter type   Del reset");
-        case RowKind::Choice:  return LOC("< > pick");
-        case RowKind::Submenu: return LOC("Enter open");
-        case RowKind::Search:  return LOC("Enter type   Del clear");
-        case RowKind::Typing:  return LOC("Enter done   Bksp erase");
-        case RowKind::TypingApply: return LOC("Enter apply   Bksp erase");
-        case RowKind::Item:    return LOC("< > amount   Enter type   Del remove");
-        case RowKind::ItemAdd: return LOC("< > amount   Enter add");
-        case RowKind::ValueAction: return LOC("< > amount   Enter type   Del reset");
-        case RowKind::Bind:    return LOC("< > pick   Enter rebind   Del reset");
+        case RowKind::Action:  return "Enter select";
+        case RowKind::Toggle:  return "Enter toggle";
+        case RowKind::ToggleValue: return "Enter toggle   < > adjust   Del reset";
+        case RowKind::Value:   return "< > adjust   Enter type   Del reset";
+        case RowKind::Choice:  return "< > pick";
+        case RowKind::Submenu: return "Enter open";
+        case RowKind::Search:  return "Enter type   Del clear";
+        case RowKind::Typing:  return "Enter done   Bksp erase";
+        case RowKind::TypingApply: return "Enter apply   Bksp erase";
+        case RowKind::Item:    return "< > amount   Enter type   Del remove";
+        case RowKind::ItemAdd: return "< > amount   Enter add";
+        case RowKind::ValueAction: return "< > amount   Enter type   Del reset";
+        case RowKind::Bind:    return "< > pick   Enter rebind   Del reset";
         default:               return "";
         }
     }
@@ -1250,8 +1191,8 @@ namespace trinity::ui
                         theme::TextDim, LeftHint(g_padActive, g_hintKind));
 
             const char* right = g_padActive
-                                    ? (atRoot ? LOC("B close   LB/RB tab") : LOC("B back   LB/RB tab"))
-                                    : (atRoot ? LOC("Bksp close   Q/E tab") : LOC("Bksp back   Q/E tab"));
+                                    ? (atRoot ? "B close   LB/RB tab" : "B back   LB/RB tab")
+                                    : (atRoot ? "Bksp close   Q/E tab" : "Bksp back   Q/E tab");
             const ImVec2 rs = g_fontBody->CalcTextSizeA(hintSz, FLT_MAX, 0.0f, right);
             dl->AddText(g_fontBody, hintSz,
                         ImVec2(g_x + g_width - rs.x - 12.0f * s, cy - hintSz * 0.5f),
@@ -1377,22 +1318,20 @@ namespace trinity::ui
                     const float fSz = g_fontBody->FontSize * 0.78f;
 
                     char hexBuf[32];
-                    snprintf(hexBuf, sizeof(hexBuf), "%s: #%02X%02X%02X", LOC("HEX"), ar, ag, ab);
+                    snprintf(hexBuf, sizeof(hexBuf), "HEX: #%02X%02X%02X", ar, ag, ab);
                     dl->AddText(g_fontBold, fSz * 1.05f, ImVec2(txtX, txtY), theme::TextBright, hexBuf);
                     txtY += fSz + 2.0f * s;
 
                     char rgbBuf[32];
-                    snprintf(rgbBuf, sizeof(rgbBuf), "%s: (%d, %d, %d)", LOC("RGB"), ar, ag, ab);
+                    snprintf(rgbBuf, sizeof(rgbBuf), "RGB: (%d, %d, %d)", ar, ag, ab);
                     dl->AddText(g_fontBody, fSz, ImVec2(txtX, txtY), IM_COL32(200, 200, 210, 255), rgbBuf);
                     txtY += fSz + 2.0f * s;
 
-                    // Not static: LOC() pointers dangle after a language switch
-                    // rebuilds the translations map.
-                    const char* const kMatNames[] = { LOC("Natural"), LOC("Cloth"), LOC("Leather"), LOC("Silk"), LOC("Iron"), LOC("Steel"), LOC("Gold"), LOC("Velvet"), LOC("Brass"), LOC("Silver"), LOC("Enamel") };
+                    static const char* const kMatNames[] = { "Natural", "Cloth", "Leather", "Silk", "Iron", "Steel", "Gold", "Velvet", "Brass", "Silver", "Enamel" };
                     int matId = g_selectedTooltip.dyeMaterial;
-                    const char* matStr = (matId >= 0 && matId <= 10) ? kMatNames[matId] : LOC("Custom");
+                    const char* matStr = (matId >= 0 && matId <= 10) ? kMatNames[matId] : "Custom";
                     char matBuf[48];
-                    snprintf(matBuf, sizeof(matBuf), "%s: %s (%d%%)", LOC("Mat"), matStr, g_selectedTooltip.dyeCondition);
+                    snprintf(matBuf, sizeof(matBuf), "Mat: %s (%d%%)", matStr, g_selectedTooltip.dyeCondition);
                     dl->AddText(g_fontBody, fSz * 0.92f, ImVec2(txtX, txtY), theme::Accent, matBuf);
                 }
                 curY += activeCardH + tPad * 0.75f;
@@ -1401,7 +1340,7 @@ namespace trinity::ui
                 {
                     dl->AddText(g_fontBold, g_fontBold->FontSize * 0.82f,
                                 ImVec2(tmn.x + tPad + 4.0f * s, curY),
-                                theme::Accent, LOC("Outfit Zone Palette (1-12)"));
+                                theme::Accent, "Outfit Zone Palette (1-12)");
                     curY += paletteHdrH;
 
                     const int cols = 6;
@@ -1459,7 +1398,7 @@ namespace trinity::ui
                     const float hintFSz = g_fontBody->FontSize * 0.74f;
                     dl->AddText(g_fontBody, hintFSz,
                                 ImVec2(tmn.x + tPad + 2.0f * s, curY),
-                                theme::TextDim, LOC("Instant Live Dye Preview"));
+                                theme::TextDim, "Instant Live Dye Preview");
                 }
             }
             else
@@ -1566,11 +1505,11 @@ namespace trinity::ui
                     // Standalone Abyss Gear preview stat box
                     dl->AddText(g_fontBody, statFSz * 0.90f,
                                 ImVec2(statsMn.x + 8.0f * s, statY),
-                                theme::TextDim, LOC("Socket Stat Effect"));
+                                theme::TextDim, "Socket Stat Effect");
 
                     dl->AddText(g_fontBold, statFSz * 1.18f,
                                 ImVec2(statsMn.x + 8.0f * s, statY + statFSz + 3.0f * s),
-                                IM_COL32(100, 220, 130, 255), LOC(g_selectedTooltip.gearBuff));
+                                IM_COL32(100, 220, 130, 255), g_selectedTooltip.gearBuff);
                 }
                 else if (hasCombatStats)
                 {
@@ -1601,8 +1540,8 @@ namespace trinity::ui
                     // --- Row 1: Attack / Defense (Left) & Durability (Right) ---
                     if (totalAtk > 0)
                     {
-                        dl->AddText(g_fontBody, statFSz, ImVec2(statsMn.x + 8.0f * s, statY), theme::TextDim, LOC("Attack"));
-                        const float atkLblW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, LOC("Attack")).x;
+                        dl->AddText(g_fontBody, statFSz, ImVec2(statsMn.x + 8.0f * s, statY), theme::TextDim, "Attack");
+                        const float atkLblW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, "Attack").x;
                         char atkStr[16];
                         snprintf(atkStr, sizeof(atkStr), "%d", totalAtk);
                         dl->AddText(g_fontBold, statFSz * 1.08f,
@@ -1611,8 +1550,8 @@ namespace trinity::ui
                     }
                     else if (totalDef > 0)
                     {
-                        dl->AddText(g_fontBody, statFSz, ImVec2(statsMn.x + 8.0f * s, statY), theme::TextDim, LOC("Defense"));
-                        const float defLblW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, LOC("Defense")).x;
+                        dl->AddText(g_fontBody, statFSz, ImVec2(statsMn.x + 8.0f * s, statY), theme::TextDim, "Defense");
+                        const float defLblW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, "Defense").x;
                         char defStr[16];
                         snprintf(defStr, sizeof(defStr), "%d", totalDef);
                         dl->AddText(g_fontBold, statFSz * 1.08f,
@@ -1623,7 +1562,7 @@ namespace trinity::ui
                     if (durability >= 0)
                     {
                         char duraBuf[32];
-                        snprintf(duraBuf, sizeof(duraBuf), "%s %d%%", LOC("Durability"), durability / 100);
+                        snprintf(duraBuf, sizeof(duraBuf), "Durability %d%%", durability / 100);
                         const float duraW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, duraBuf).x;
                         dl->AddText(g_fontBody, statFSz,
                                     ImVec2(statsMx.x - duraW - 8.0f * s, statY),
@@ -1635,16 +1574,16 @@ namespace trinity::ui
                     if (rExp > 0 || rBonus > 0)
                     {
                         char rfExpBuf[32];
-                        snprintf(rfExpBuf, sizeof(rfExpBuf), "%s  %d/100", LOC("Reinforcement"), rExp);
+                        snprintf(rfExpBuf, sizeof(rfExpBuf), "Reinforcement  %d/100", rExp);
                         dl->AddText(g_fontBody, statFSz * 0.90f,
                                     ImVec2(statsMn.x + 8.0f * s, statY),
                                     theme::Text, rfExpBuf);
 
                         char rfBonusBuf[48];
                         if (atkVal > 0)
-                            snprintf(rfBonusBuf, sizeof(rfBonusBuf), "%s: %s +%d", LOC("Reinforcement"), LOC("Attack"), rBonus);
+                            snprintf(rfBonusBuf, sizeof(rfBonusBuf), "Reinforcement: Attack +%d", rBonus);
                         else
-                            snprintf(rfBonusBuf, sizeof(rfBonusBuf), "%s: %s +%d", LOC("Reinforcement"), LOC("Defense"), rBonus);
+                            snprintf(rfBonusBuf, sizeof(rfBonusBuf), "Reinforcement: Defense +%d", rBonus);
                         const float rfBonusW = g_fontBody->CalcTextSizeA(statFSz * 0.90f, FLT_MAX, 0.0f, rfBonusBuf).x;
                         dl->AddText(g_fontBody, statFSz * 0.90f,
                                     ImVec2(statsMx.x - rfBonusW - 8.0f * s, statY),
@@ -1655,9 +1594,9 @@ namespace trinity::ui
                     // --- Row 3: Refinement + 10-Segment Golden Bars ---
                     dl->AddText(g_fontBody, statFSz * 0.90f,
                                 ImVec2(statsMn.x + 8.0f * s, statY),
-                                theme::TextDim, LOC("Refinement"));
+                                theme::TextDim, "Refinement");
 
-                    const float refLblW = g_fontBody->CalcTextSizeA(statFSz * 0.90f, FLT_MAX, 0.0f, LOC("Refinement")).x;
+                    const float refLblW = g_fontBody->CalcTextSizeA(statFSz * 0.90f, FLT_MAX, 0.0f, "Refinement").x;
                     float barStartX = statsMn.x + 8.0f * s + refLblW + 8.0f * s;
                     const float segW = 3.5f * s;
                     const float segH = 8.5f * s;
@@ -1689,7 +1628,7 @@ namespace trinity::ui
 
                     // Right side: Sockets summary
                     char sockSummary[32];
-                    snprintf(sockSummary, sizeof(sockSummary), "%d / %d %s", filledS, maxSock, LOC("Sockets"));
+                    snprintf(sockSummary, sizeof(sockSummary), "%d / %d Sockets", filledS, maxSock);
                     const float sockSumW = g_fontBody->CalcTextSizeA(statFSz * 0.90f, FLT_MAX, 0.0f, sockSummary).x;
                     dl->AddText(g_fontBody, statFSz * 0.90f,
                                 ImVec2(statsMx.x - sockSumW - 8.0f * s, statY),
@@ -1700,9 +1639,9 @@ namespace trinity::ui
                     // Simpler 2-row layout for catalog / inventory preview
                     char refBuf[32];
                     if (refineLvl > 0)
-                        snprintf(refBuf, sizeof(refBuf), "%s +%d", LOC("Refine"), refineLvl);
+                        snprintf(refBuf, sizeof(refBuf), "Refine +%d", refineLvl);
                     else
-                        snprintf(refBuf, sizeof(refBuf), "%s +0", LOC("Refine"));
+                        snprintf(refBuf, sizeof(refBuf), "Refine +0");
 
                     dl->AddText(g_fontBold, statFSz,
                                 ImVec2(statsMn.x + 8.0f * s, statY),
@@ -1712,7 +1651,7 @@ namespace trinity::ui
                     if (durability >= 0)
                     {
                         char duraBuf[32];
-                        snprintf(duraBuf, sizeof(duraBuf), "%s %d%%", LOC("Durability"), durability / 100);
+                        snprintf(duraBuf, sizeof(duraBuf), "Durability %d%%", durability / 100);
                         const float duraW = g_fontBody->CalcTextSizeA(statFSz, FLT_MAX, 0.0f, duraBuf).x;
                         dl->AddText(g_fontBody, statFSz,
                                     ImVec2(statsMx.x - duraW - 8.0f * s, statY),
@@ -1721,9 +1660,9 @@ namespace trinity::ui
 
                     char sockSummary[48];
                     if (maxSock > 0)
-                        snprintf(sockSummary, sizeof(sockSummary), "%s: %d / %d %s", LOC("Sockets"), filledS, maxSock, LOC("used"));
+                        snprintf(sockSummary, sizeof(sockSummary), "Sockets: %d / %d used", filledS, maxSock);
                     else
-                        snprintf(sockSummary, sizeof(sockSummary), LOC("No Sockets"));
+                        snprintf(sockSummary, sizeof(sockSummary), "No Sockets");
 
                     dl->AddText(g_fontBody, statFSz * 0.92f,
                                 ImVec2(statsMn.x + 8.0f * s, statY + statFSz + 3.0f * s),
@@ -1746,7 +1685,7 @@ namespace trinity::ui
                 const float dotsTotal = (maxSock - 1) * dotSpacing + dotR * 2.0f;
                 const float labelFSz  = g_fontBody->FontSize * 0.78f;
                 char sockLbl[48];
-                snprintf(sockLbl, sizeof(sockLbl), "%d %s", maxSock, LOC("Abyss Socket"));
+                snprintf(sockLbl, sizeof(sockLbl), "%d Abyss Socket%s", maxSock, maxSock == 1 ? "" : "s");
                 const float lblW      = g_fontBody->CalcTextSizeA(labelFSz, FLT_MAX, 0.0f, sockLbl).x;
                 const float rowW      = dotsTotal + 8.0f * s + lblW;
                 float dotX = tmn.x + (tWidth - rowW) * 0.5f + dotR;
@@ -1792,7 +1731,7 @@ namespace trinity::ui
                 const float aHdrFSz = g_fontBody->FontSize * 0.82f;
                 dl->AddText(g_fontBold, aHdrFSz,
                             ImVec2(tmn.x + tPad + 4.0f * s, curY),
-                            theme::Accent, LOC("Abyss Gears"));
+                            theme::Accent, "Abyss Gears");
                 curY += gearLblH;
 
                 // --- Individual Sockets list (1..maxSock) ---
@@ -1827,7 +1766,7 @@ namespace trinity::ui
                         }
 
                         char sockLine[128];
-                        snprintf(sockLine, sizeof(sockLine), "%d. %s", k + 1, LOC(sock.gearName));
+                        snprintf(sockLine, sizeof(sockLine), "%d. %s", k + 1, sock.gearName);
 
                         // Right side: Gear Buff / Stat Description (e.g. "Attack 1", "Abyss Dmg +15%")
                         float buffW = 0.0f;
@@ -1845,7 +1784,7 @@ namespace trinity::ui
 
                             dl->AddText(g_fontBody, buffFSz,
                                         ImVec2(tmx.x - tPad - buffW, gTxtY),
-                                        buffColor, LOC(sock.gearBuff));
+                                        buffColor, sock.gearBuff);
                         }
 
                         const float gTxtMaxW = (tmx.x - tPad) - gTxtX - buffW - 4.0f * s;
@@ -1860,7 +1799,7 @@ namespace trinity::ui
                                       gearIconSz * 0.35f, WithAlpha(theme::Accent, 0.5f), 16, 1.2f * s);
 
                         char emptyLine[64];
-                        snprintf(emptyLine, sizeof(emptyLine), "%d. (%s)", k + 1, LOC("Empty Socket"));
+                        snprintf(emptyLine, sizeof(emptyLine), "%d. (Empty Socket)", k + 1);
 
                         dl->AddText(g_fontBody, gFontSz,
                                     ImVec2(gTxtX, gTxtY),
@@ -1872,7 +1811,7 @@ namespace trinity::ui
                         dl->AddRect(gIconMn, gIconMx, WithAlpha(theme::TextDim, 0.25f), 2.0f * s, 0, 1.0f * s);
 
                         char lockedLine[64];
-                        snprintf(lockedLine, sizeof(lockedLine), "%d. (%s)", k + 1, LOC("Locked"));
+                        snprintf(lockedLine, sizeof(lockedLine), "%d. (Locked)", k + 1);
                         dl->AddText(g_fontBody, gFontSz,
                                     ImVec2(gTxtX, gTxtY),
                                     WithAlpha(theme::TextDim, 0.55f), lockedLine);
@@ -1910,17 +1849,8 @@ namespace trinity::ui
         }
         else if (g_pendingPop || g_nav.back)
         {
-            if (g_stack.empty())
-            {
-                State::Get().menuOpen = false;
-                // Keep the pad-eating window alive briefly so the B press that
-                // just closed the menu never reaches the game (it would roll).
-                State::Get().menuCloseAt = GetTickCount64();
-            }
-            else
-            {
-                g_stack.pop_back();
-            }
+            if (g_stack.empty()) State::Get().menuOpen = false;
+            else                 g_stack.pop_back();
         }
         g_pendingPop = false;
     }

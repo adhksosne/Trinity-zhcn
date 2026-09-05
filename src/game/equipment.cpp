@@ -81,7 +81,24 @@ namespace trinity::game
             uintptr_t d = 0, a = 0;
             uint32_t c = 0;
 
-            // Modern TU 1.17+ table (+0x80) - Priority
+            // TU 2.01+ table (+0x90) - Priority
+            if (ReadPtr(comp + 0x90, &d) && d >= kMinPointer &&
+                ReadPtr(d + kOff_EquipTable_Array, &a) && a >= kMinPointer &&
+                Read32(d + kOff_EquipTable_Count, &c) && c >= 1 && c <= 64)
+            {
+                if (validateTable(a, c, 0xD0, 0xC8))
+                {
+                    out.desc = d;
+                    out.array = a;
+                    out.count = c;
+                    out.stride = 0xD0;
+                    out.tagOffset = 0xC8;
+                    out.valid = true;
+                    return out;
+                }
+            }
+
+            // Modern TU 1.17 - 2.00 table (+0x80)
             if (ReadPtr(comp + 0x80, &d) && d >= kMinPointer &&
                 ReadPtr(d + kOff_EquipTable_Array, &a) && a >= kMinPointer &&
                 Read32(d + kOff_EquipTable_Count, &c) && c >= 1 && c <= 64)
@@ -115,8 +132,8 @@ namespace trinity::game
                 }
             }
 
-            // Alternate table offsets (+0x50, +0x38, +0x40, +0x48, +0x60, +0x70)
-            const uintptr_t tableOffsets[] = { 0x50, 0x38, 0x40, 0x48, 0x60, 0x70 };
+            // Alternate table offsets (+0x90, +0x80, +0x50, +0x38, +0x40, +0x48, +0x60, +0x70)
+            const uintptr_t tableOffsets[] = { 0x90, 0x80, 0x50, 0x38, 0x40, 0x48, 0x60, 0x70 };
             for (uintptr_t tOff : tableOffsets)
             {
                 if (!ReadPtr(comp + tOff, &d) || d < kMinPointer) continue;
@@ -197,6 +214,14 @@ namespace trinity::game
             comp = FindEquipCompFromActor(actor);
             if (comp && CompValid(comp))
                 return comp;
+            // If actor is an owner object, inspect its inner actor (+0x68)
+            uintptr_t innerAct = 0;
+            if (ReadPtr(actor + kOff_Owner_Actor, &innerAct) && innerAct >= kMinPointer)
+            {
+                comp = FindEquipCompFromActor(innerAct);
+                if (comp && CompValid(comp))
+                    return comp;
+            }
             return 0;
         }
 
@@ -216,20 +241,6 @@ namespace trinity::game
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
             const int targetIdx = (s_activeCharIdx < 0) ? liveIdx : s_activeCharIdx;
 
-            static bool s_routeDiag = false;
-            if (!s_routeDiag)
-            {
-                s_routeDiag = true;
-                LOG("equipment: route diag live=%d target=%d clientChar=0x%llX hooked=0x%llX active=0x%llX actors=[0x%llX 0x%llX 0x%llX]",
-                    liveIdx, targetIdx,
-                    (unsigned long long)Inventory::ClientCharacterAddr(),
-                    (unsigned long long)Dye::HookedClientComp(),
-                    (unsigned long long)Dye::ActiveClientComp(),
-                    (unsigned long long)Player::GetActor(0),
-                    (unsigned long long)Player::GetActor(1),
-                    (unsigned long long)Player::GetActor(2));
-            }
-
             if (targetIdx == liveIdx)
             {
                 // The validated live character's walk leads - see dye.cpp for
@@ -241,6 +252,18 @@ namespace trinity::game
                 {
                     const uintptr_t comp = CompForCharacter(liveChar);
                     if (comp) return comp;
+                }
+
+                // Fallback: resolve from live inventory holder's owner
+                const uintptr_t h = Inventory::ClientHolderAddr();
+                if (h)
+                {
+                    uintptr_t owner = 0;
+                    if (ReadPtr(h + 8, &owner) && owner >= kMinPointer)
+                    {
+                        const uintptr_t comp = CompForCharacter(owner);
+                        if (comp) return comp;
+                    }
                 }
 
                 const uintptr_t hooked = Dye::HookedClientComp();
@@ -256,16 +279,14 @@ namespace trinity::game
                     }
                 }
 
-                // Loose live fallbacks so the active character always reads back
-                // (upstream strict routing left the live character unresolvable).
-                const uintptr_t active = Dye::ActiveClientComp();
-                if (active && CompValid(active)) return active;
-
-                const uintptr_t liveActor = Player::GetActor(liveIdx);
-                if (liveActor)
+                if (liveIdx > 0 && liveIdx < 3)
                 {
-                    const uintptr_t comp = CompForCharacter(liveActor);
-                    if (comp) return comp;
+                    const uintptr_t liveActor = Player::GetActor(liveIdx);
+                    if (liveActor)
+                    {
+                        const uintptr_t comp = CompForCharacter(liveActor);
+                        if (comp) return comp;
+                    }
                 }
                 return 0; // never another character's component
             }
@@ -278,7 +299,7 @@ namespace trinity::game
                 if (comp)
                 {
                     const int id = Inventory::IdentifyCharacterFromComp(comp);
-                    if (id == targetIdx) return comp;
+                    if (id < 0 || id == targetIdx) return comp;
                 }
             }
             if (targetIdx > 0 && targetIdx < 3)
@@ -292,7 +313,8 @@ namespace trinity::game
                         if (comp)
                         {
                             const int id = Inventory::IdentifyCharacterFromComp(comp);
-                            if (id == targetIdx) return comp;
+                            if (id == targetIdx || (p == targetIdx && id < 0))
+                                return comp;
                         }
                     }
                 }
@@ -300,6 +322,7 @@ namespace trinity::game
             return 0;
         }
 
+        // Server-authority mirror with the same strict routing as dye.cpp.
         uintptr_t ServerComp()
         {
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
@@ -313,15 +336,6 @@ namespace trinity::game
                     const uintptr_t comp = CompForCharacter(serverChar);
                     if (comp) return comp;
                 }
-
-                // Loose live fallback (a client-realm component at worst; edits
-                // then render but do not persist, which the UI can warn about).
-                const uintptr_t liveActor = Player::GetActor(liveIdx);
-                if (liveActor)
-                {
-                    const uintptr_t comp = CompForCharacter(liveActor);
-                    if (comp) return comp;
-                }
             }
 
             const uintptr_t actor = Inventory::CharacterAddr(targetIdx);
@@ -331,7 +345,7 @@ namespace trinity::game
                 if (comp)
                 {
                     const int id = Inventory::IdentifyCharacterFromComp(comp);
-                    if (id == targetIdx) return comp;
+                    if (id < 0 || id == targetIdx) return comp;
                 }
             }
             if (targetIdx > 0 && targetIdx < 3)
@@ -345,13 +359,15 @@ namespace trinity::game
                         if (comp)
                         {
                             const int id = Inventory::IdentifyCharacterFromComp(comp);
-                            if (id == targetIdx) return comp;
+                            if (id == targetIdx || (p == targetIdx && id < 0))
+                                return comp;
                         }
                     }
                 }
             }
             return 0;
         }
+
         bool IsDummyOrUnarmed(uint16_t typeId, const char* name)
         {
             if (typeId == 0 || typeId == kInvSlot_EmptyType) return true;
@@ -1190,7 +1206,7 @@ namespace trinity::game
 
                 char itemName[96] = "";
                 if (!Inventory::NameForTypeId(tid, itemName, sizeof(itemName)))
-                    snprintf(itemName, sizeof(itemName), "物品 #%u", tid);
+                    snprintf(itemName, sizeof(itemName), "Item #%u", tid);
 
                 // Exclude dummy unarmed placeholder gear (Ordinary Gloves) from Edit Equipment
                 if (IsDummyOrUnarmed(tid, itemName)) continue;
@@ -1967,7 +1983,7 @@ namespace trinity::game
         const char* charName = CharacterName(charIdx);
         char itemName[64] = "";
         if (!Inventory::NameForTypeId(typeId, itemName, sizeof(itemName)))
-            snprintf(itemName, sizeof(itemName), "物品 #%u", typeId);
+            snprintf(itemName, sizeof(itemName), "Item #%u", typeId);
         const char* slotName = SlotNameForTag(tag);
         LOG("equipment: [%s] Slot [%s (Tag %u)] -> Directly Equipped '%s' (TypeID %u, InstID 0x%llX).",
             charName, slotName ? slotName : "Unknown", tag, itemName, typeId, static_cast<unsigned long long>(instId));
@@ -2029,7 +2045,7 @@ namespace trinity::game
         {
             static ULONGLONG s_lastRepair = 0;
             const ULONGLONG now = GetTickCount64();
-            if (now - s_lastRepair >= 500)
+            if (now - s_lastRepair >= 1500)
             {
                 RepairAll();
                 s_lastRepair = now;
@@ -2042,7 +2058,7 @@ namespace trinity::game
         // to avoid corrupting container metadata and triggering Error 298648703.
         static ULONGLONG s_lastEquipRestore = 0;
         const ULONGLONG nowEquipRestore = GetTickCount64();
-        if (nowEquipRestore - s_lastEquipRestore >= 500 && !Inventory::IsTransactionActive())
+        if (nowEquipRestore - s_lastEquipRestore >= 1500 && !Inventory::IsTransactionActive())
         {
             s_lastEquipRestore = nowEquipRestore;
 

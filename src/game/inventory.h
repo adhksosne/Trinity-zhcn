@@ -43,11 +43,6 @@ namespace trinity::game
         static bool Install();
         static void Remove();
 
-        // No Bounty (upstream v1.3.2): zeroes the WantedInfo table's crime price
-        // increases (or restores them). Refuses to enable before the player is
-        // loaded into the world; returns whether the table was actually touched.
-        static bool SetNoBounty(bool enable);
-
         // True once a live inventory holder resolves (usually immediately
         // after load via the global walk).
         static bool Ready();
@@ -157,13 +152,6 @@ namespace trinity::game
         // the whole path is available.
         enum class AddState { Idle, Pending, Added, Failed };
         static AddState AddStatus();
-
-        // Raw access to the engine localisation string pool. Valid once LocString
-        // has resolved; may be empty very early. Used by the UI to build glyph
-        // coverage so any CJK character an engine-localised name contains always
-        // has a glyph - independent of any baked-in dictionary.
-        struct LocBlobInfo { const char* data = nullptr; size_t size = 0; };
-        static bool GetLocBlob(LocBlobInfo* out);
 
         // Bulk add: queue `count` items (from `typeIds`), `qtyEach` of each, in
         // one action - "add X of every item in this category". Same engine path
@@ -327,6 +315,13 @@ namespace trinity::game
         // anything permanently stomped.
         static bool SetAllMaxStackSizes(bool enable, int64_t value);
         static bool SetAllSlotSizes(bool enable, int value);
+
+        // No Bounty: zero every WantedInfo row's _increasePrice and TribeInfo's _wantedCrimeType
+        // so crimes do not accumulate bounties or trigger wanted aggression. Session-only.
+        static bool SetNoBounty(bool enable);
+
+        // Reflection table resolution helper
+        static uintptr_t FindTableGlobal(const char* name, bool indirect = false);
 
         // Game-thread upkeep for the two overrides above: applies (or
         // restores) whichever changed since the last call, retrying every

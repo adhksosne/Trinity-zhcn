@@ -3,7 +3,6 @@
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>
-#include <cmath>
 #include <vector>
 
 #include <Windows.h>
@@ -49,7 +48,16 @@ namespace trinity::gui
         ImDrawList* dl = ImGui::GetForegroundDrawList();
 
         char buf[64];
-        snprintf(buf, sizeof(buf), "%.0f FPS", io.Framerate);
+        // While Free Flight is on, light "FLY" whenever a direction is actively
+        // driving your height (a fly key/button held while airborne), so it's
+        // obvious when the controls have taken over. Harmless otherwise - FPS.
+        if (State::Get().freeFlight)
+        {
+            const bool fly = game::Teleport::GetFlightEngaged();
+            snprintf(buf, sizeof(buf), "%.0f FPS%s", io.Framerate, fly ? "  FLY" : "");
+        }
+        else
+            snprintf(buf, sizeof(buf), "%.0f FPS", io.Framerate);
 
         const float  sz  = ImGui::GetFontSize();
         const ImVec2 ts  = ImGui::GetFont()->CalcTextSizeA(sz, 3.402823466e+38f, 0.0f, buf);
@@ -112,16 +120,16 @@ namespace trinity::gui
         }
         changed |= ui::Toggle(LOC("Infinite Spirit"), &st.infSpirit,
                    LOC("Keeps your spirit / special ability gauge full."));
-        changed |= ui::Toggle(LOC("Easy Parry"), &st.easyParry,
-                   game::Player::JustCoreReady()
-                        ? LOC("Holding guard makes every incoming attack a Perfect Parry: zero damage and the attacker is staggered.")
-                        : LOC("Easy Parry. Unavailable right now."));
-        changed |= ui::Toggle(LOC("Easy Evade"), &st.easyEvade,
-                   game::Player::JustCoreReady()
-                        ? LOC("Pressing dodge/roll makes every incoming attack a Perfect Evade: zero damage.")
-                        : LOC("Easy Evade. Unavailable right now."));
-        changed |= ui::Toggle(LOC("No Bounty"), &st.noBounty,
-                       LOC("Crimes stop adding to your bounty or alerting faction guards (session-only, safe for save files)."));
+        changed |= ui::Toggle(LOC("Easy Parry (Just Guard)"), &st.easyParry,
+                   LOC("Natively triggers Perfect Parry and deflect counters whenever you guard against enemy attacks."));
+        changed |= ui::Toggle(LOC("Easy Evade (Just Evade)"), &st.easyEvade,
+                   LOC("Natively triggers Perfect Dodge slow-motion counters whenever you dodge in combat."));
+        if (ui::Toggle(LOC("No Bounty"), &st.noBounty,
+                       LOC("Crimes stop adding to your bounty or alerting faction guards (session-only, safe for save files).")))
+        {
+            game::Inventory::SetNoBounty(st.noBounty);
+            changed = true;
+        }
         changed |= ui::FloatOption(LOC("Outgoing Damage"), &st.dmgOutMult, 0.0f, 20.0f, 0.25f, 1.0f, "%.2fx",
                         LOC("Adjusts how much damage you deal to enemies."));
         changed |= ui::FloatOption(LOC("Incoming Damage"), &st.dmgInMult, 0.0f, 10.0f, 0.25f, 1.0f, "%.2fx",
@@ -205,7 +213,7 @@ namespace trinity::gui
             if (targetIdx == 1 || targetIdx == 2)
             {
                 const char* name = game::Equipment::CharacterName(targetIdx);
-                ui::Toast(LOC("Dye applied to %s"), LOC(name));
+                ui::Toast(LOC("Dye applied to %s"), name);
             }
             else
             {
@@ -266,23 +274,20 @@ namespace trinity::gui
     {
         uint32_t zoneColors[12] = {};
         bool zoneDyed[12] = {};
-        // Single pass reads all zones; per-zone GetChannel re-ran the heavy
-        // component lookup for off-screen companions (Damiane/Oongka) each frame.
-        game::Dye::Channel all[game::kDye_MaxChannels] = {};
-        const uint32_t mask = game::Dye::ReadChannels(curSlot.tag, all);
         for (int z = 0; z < 12; ++z)
         {
-            if (mask & (1u << z))
+            game::Dye::Channel c{};
+            if (game::Dye::GetChannel(curSlot.tag, z, &c))
             {
-                zoneColors[z] = (uint32_t(all[z].r) << 16) | (uint32_t(all[z].g) << 8) | all[z].b;
+                zoneColors[z] = (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | c.b;
                 zoneDyed[z] = true;
             }
         }
         char sub[64];
         if (activeZone == 0)
-            snprintf(sub, sizeof(sub), "%s  •  %s", curSlot.slotName[0] ? LOC(curSlot.slotName) : LOC("Dye Preview"), LOC("All Zones"));
+            snprintf(sub, sizeof(sub), "%s  •  All Zones", curSlot.slotName[0] ? curSlot.slotName : "Dye Preview");
         else
-            snprintf(sub, sizeof(sub), "%s  •  %s %d", curSlot.slotName[0] ? LOC(curSlot.slotName) : LOC("Dye Preview"), LOC("Zone"), activeZone);
+            snprintf(sub, sizeof(sub), "%s  •  Zone %d", curSlot.slotName[0] ? curSlot.slotName : "Dye Preview", activeZone);
 
         ui::SetDyePreviewTooltip(curSlot.itemName[0] ? curSlot.itemName : s_dyeItem,
                                 curSlot.icon, sub, activeZone, activeRGB,
@@ -298,9 +303,7 @@ namespace trinity::gui
         const bool isMount = (game::Dye::GetTargetMode() == 1);
         if (isMount)
         {
-            // Not static: LOC() pointers dangle after a language switch rebuilds
-            // the translations map.
-            const char* const kMountNames[] = { LOC("Active Mount"), LOC("Mount 2"), LOC("Mount 3"), LOC("Mount 4") };
+            static const char* const kMountNames[] = { "Active Mount", "Mount 2", "Mount 3", "Mount 4" };
             int mountIdx = game::Dye::GetActiveMount();
             if (ui::Combo(LOC("Target Mount"), &mountIdx, kMountNames, 4, LOC("Select active horse or mount to dye.")))
             {
@@ -309,11 +312,8 @@ namespace trinity::gui
         }
         else
         {
-            // Not static: LOC() pointers dangle after a language switch rebuilds
-            // the translations map.
-            const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
+            static const char* const kCharNames[] = { "Kliff", "Damiane", "Oongka" };
             int dyeChar = game::Dye::GetActiveCharacter();
-            if (dyeChar < 0 || dyeChar > 2) dyeChar = 0; // same clamp as equipment: auto-detect can fail (-1)
             if (ui::Combo(LOC("Character"), &dyeChar, kCharNames, 3, LOC("Select which character's armor to dye.")))
             {
                 game::Dye::SetActiveCharacter(dyeChar);
@@ -359,6 +359,26 @@ namespace trinity::gui
         int shown = 0, hidden = 0;
         char hiddenList[200] = "";
 
+        // Live Preview: automatically display the side-panel dye overview for the active/selected slot
+        game::Dye::SlotInfo previewSlot{};
+        bool havePreviewSlot = false;
+        for (int i = 0; i < n; ++i)
+        {
+            game::Dye::SlotInfo si{};
+            if (game::Dye::GetSlot(i, &si) && si.dyeable)
+            {
+                if (!havePreviewSlot || si.tag == s_dyeTag)
+                {
+                    previewSlot = si;
+                    havePreviewSlot = true;
+                    if (si.tag == s_dyeTag) break;
+                }
+            }
+        }
+        if (havePreviewSlot)
+        {
+            UpdateDyeTooltip(previewSlot, 0xFFFFFF, 0);
+        }
 
         for (int i = 0; i < n; ++i)
         {
@@ -380,13 +400,13 @@ namespace trinity::gui
             char label[160];
             if (si.dyeCount > 0)
                 snprintf(label, sizeof(label), "%s - %s  (%u/%d %s)",
-                         LOC(si.slotName), si.itemName, si.dyeCount, si.maxZones, LOC("zones dyed"));
+                         si.slotName, si.itemName, si.dyeCount, si.maxZones, LOC("zones dyed"));
             else
                 snprintf(label, sizeof(label), "%s - %s  (%d %s)",
-                         LOC(si.slotName), si.itemName, si.maxZones, LOC("zones"));
+                         si.slotName, si.itemName, si.maxZones, LOC("zones"));
 
-            if (ui::SubmenuDyeItem(label, si.icon[0] ? si.icon : nullptr, "dyeedit", si,
-                                   LOC("Recolor this piece.")))
+            if (ui::SubmenuItem(label, si.icon[0] ? si.icon : nullptr, "dyeedit",
+                                "Recolor this piece."))
             {
                 // A different piece gets fresh pages (selection, scroll); the
                 // same piece keeps them, so hopping out and back in is free.
@@ -409,7 +429,8 @@ namespace trinity::gui
         if (hidden > 0)
         {
             char label[48];
-            snprintf(label, sizeof(label), LOC("Can't be dyed: %d piece(s)"), hidden);
+            snprintf(label, sizeof(label), "Can't be dyed: %d piece%s",
+                     hidden, hidden == 1 ? "" : "s");
             char desc[256];
             snprintf(desc, sizeof(desc), "%s", hiddenList);
             ui::Option(label, desc);
@@ -436,26 +457,24 @@ namespace trinity::gui
         const int maxZones = 12;
 
         static const char* const kZoneItems[] = {
-            LOC("All zones"), LOC("Zone 1"), LOC("Zone 2"), LOC("Zone 3"), LOC("Zone 4"), LOC("Zone 5"), LOC("Zone 6"),
-            LOC("Zone 7"), LOC("Zone 8"), LOC("Zone 9"), LOC("Zone 10"), LOC("Zone 11"), LOC("Zone 12")
+            "All zones", "Zone 1", "Zone 2", "Zone 3", "Zone 4", "Zone 5", "Zone 6",
+            "Zone 7", "Zone 8", "Zone 9", "Zone 10", "Zone 11", "Zone 12"
         };
         const int comboCount = 1 + maxZones;
         if (s_dyeChan >= comboCount) s_dyeChan = 0;
 
-        // Rebuilt each frame: LOC() returns pointers into the translations map,
-        // which a language switch rebuilds (a static cache would dangle).
-        const char* famItems[game::kDyeFamilyCount];
-        for (int i = 0; i < game::kDyeFamilyCount; ++i)
+        static const char* s_famItems[game::kDyeFamilyCount];
+        static bool s_famInit = false;
+        if (!s_famInit)
         {
-            // Localize the display name (all 10 are plain colour words) so
-            // the family picker shows Chinese; the engine colour-group key
-            // (game::kDyeFamilies[i].stringKey) is untouched for the record.
-            famItems[i] = LOC(game::kDyeFamilies[i].name);
+            for (int i = 0; i < game::kDyeFamilyCount; ++i)
+                s_famItems[i] = game::kDyeFamilies[i].name;
+            s_famInit = true;
         }
 
         ui::Combo(LOC("Dye Zone"), &s_dyeChan, kZoneItems, comboCount,
                   LOC("Which zone of the item to color (Supports Zones 1-12)."));
-        ui::Combo(LOC("Color Family"), &s_dyeFamily, famItems, game::kDyeFamilyCount,
+        ui::Combo(LOC("Color Family"), &s_dyeFamily, s_famItems, game::kDyeFamilyCount,
                   LOC("Pick a color family to browse its shades below."));
 
         const game::DyeFamily& fam = game::kDyeFamilies[s_dyeFamily];
@@ -489,8 +508,8 @@ namespace trinity::gui
             }
 
             const int hit = ui::SwatchRow("", rgb, cnt, &s_dyeCursor[row], mark,
-                neutral ? LOC("Pick a tone, or the first swatch to remove the dye.")
-                        : LOC("Pick a color to dye it right away."),
+                neutral ? "Pick a tone, or the first swatch to remove the dye."
+                        : "Pick a color to dye it right away.",
                 neutral ? 0 : -1);
             if (hit >= 0)
             {
@@ -608,11 +627,8 @@ namespace trinity::gui
     {
         ui::Begin();
 
-        // Not static: LOC() returns pointers into the translations map, which is
-        // rebuilt on a language switch - a static array would dangle.
-        const char* const kCharNames[] = { LOC("Kliff"), LOC("Damiane"), LOC("Oongka") };
+        static const char* const kCharNames[] = { "Kliff", "Damiane", "Oongka" };
         int eqChar = game::Equipment::GetActiveCharacter();
-        if (eqChar < 0 || eqChar > 2) eqChar = 0; // auto-detect can fail (-1): clamp to Kliff so the combo preview never reads out of bounds
         if (ui::Combo(LOC("Character"), &eqChar, kCharNames, 3, LOC("Select which character's equipment to view and edit.")))
         {
             game::Equipment::SetActiveCharacter(eqChar);
@@ -778,7 +794,7 @@ namespace trinity::gui
             else
             {
                 snprintf(label, sizeof(label), "%s %d: %s", LOC("Socket"), k + 1,
-                         so.filled ? LOC(so.gearName) : LOC("Empty"));
+                         so.filled ? so.gearName : LOC("Empty"));
                 if (ui::SubmenuItem(label, (so.filled && so.gearIcon[0]) ? so.gearIcon : nullptr,
                                     "equipgear",
                                     so.filled ? LOC("Change or remove this abyss gear.")
@@ -803,23 +819,23 @@ namespace trinity::gui
 
         // 1. Character Filter
         static const char* const kCharFilters[] = {
-            LOC("All Characters"),
-            LOC("Current Character Only"),
-            LOC("Kliff Only"),
-            LOC("Damiane Only"),
-            LOC("Oongka Only")
+            "All Characters",
+            "Current Character Only",
+            "Kliff Only",
+            "Damiane Only",
+            "Oongka Only"
         };
         ui::Combo(LOC("Character Filter"), &s_eqCharFilter, kCharFilters, 5,
                   LOC("Filter equipment suitable for this character or show all items."));
 
         // 2. Category / Slot Filter
         static const char* const kCategoryFilters[] = {
-            LOC("All Categories"),
-            LOC("Matching Slot Only"),
-            LOC("Weapons"),
-            LOC("Shields & Off-Hand"),
-            LOC("Armor"),
-            LOC("Accessories")
+            "All Categories",
+            "Matching Slot Only",
+            "Weapons",
+            "Shields & Off-Hand",
+            "Armor",
+            "Accessories"
         };
         ui::Combo(LOC("Category Filter"), &s_eqCategoryFilter, kCategoryFilters, 6,
                   LOC("Filter items by weapon, armor, shield, or slot compatibility."));
@@ -920,7 +936,7 @@ namespace trinity::gui
     static void RenderEquipGear()
     {
         char title[112];
-        snprintf(title, sizeof(title), "%s - %s %d", s_eqItem, LOC("Socket"), s_eqSocket + 1);
+        snprintf(title, sizeof(title), "%s - Socket %d", s_eqItem, s_eqSocket + 1);
         ui::Begin(title);
 
         // Clearing the socket is always the first choice (icon box left empty so
@@ -1039,12 +1055,12 @@ namespace trinity::gui
 
         // 1. Weather Presets & Overrides
         static const char* s_weathers[] = {
-            LOC("Dynamic (Game Default)"),
-            LOC("Clear Sky (Sunny)"),
-            LOC("Overcast (Cloudy)"),
-            LOC("Rainy (Light Rain)"),
-            LOC("Thunderstorm (Storm)"),
-            LOC("Dense Fog / Mist")
+            "Dynamic (Game Default)",
+            "Clear Sky (Sunny)",
+            "Overcast (Cloudy)",
+            "Rainy (Light Rain)",
+            "Thunderstorm (Storm)",
+            "Dense Fog / Mist"
         };
         int wIdx = st.weatherPreset;
         if (ui::Combo(LOC("Weather Preset"), &wIdx, s_weathers, 6, LOC("Select and lock active weather atmosphere.")))
@@ -1103,7 +1119,7 @@ namespace trinity::gui
 
         const bool ready = game::World::Ready();
         bool changed = false;
-        changed |= ui::ToggleFloat(LOC("Game Speed"), &st.gameSpeed, &st.gameSpeedMult, 0.1f, 10.0f, 0.05f, 1.0f, "%.2fx",
+        changed |= ui::ToggleFloat(LOC("Game Speed"), &st.gameSpeed, &st.gameSpeedMult, 0.1f, 5.0f, 0.05f, 1.0f, "%.2fx",
                    ready
                        ? LOC("Speeds up or slows down the game.")
                        : LOC("Speeds up or slows down the game. Unavailable right now."));
@@ -1257,7 +1273,7 @@ namespace trinity::gui
             if (renderRow(i))
                 ++shown;
         if (shown == 0)
-            ui::Option(LOC("No matches"), noMatchDesc);
+            ui::Option("No matches", noMatchDesc);
     }
 
     // Renders one `ui::Submenu` row per category (built into `label` by
@@ -1339,8 +1355,8 @@ namespace trinity::gui
         // shows "row / total", Left/Right and PgUp/PgDn jump a screen at a
         // time, and the search row filters it live.
         RenderFilteredList(total, s_ftFilter, sizeof(s_ftFilter),
-            LOC("Search this list by name."),
-            LOC("No locations match this search."),
+            "Search this list by name.",
+            "No locations match this search.",
             [&](size_t i)
             {
                 const char* label = nullptr;
@@ -1349,13 +1365,13 @@ namespace trinity::gui
                 if (s_ftFilter[0] && !ContainsNoCase(label, s_ftFilter)) return false;
 
                 char desc[128];
-                snprintf(desc, sizeof(desc), "%s", LOC("Fast travel to %s at %.0f, %.0f, %.0f."),
+                snprintf(desc, sizeof(desc), "Fast travel to %s at %.0f, %.0f, %.0f.",
                          label, nx, ny, nz);
 
                 if (ui::Option(label, desc))
                 {
                     if (game::Teleport::TravelToNode(s_ftCat, i))
-                        ui::Toast(LOC("Warping to %s"), label);
+                        ui::Toast("Warping to %s", label);
                 }
                 return true;
             });
@@ -1633,13 +1649,13 @@ namespace trinity::gui
 
         char desc[224];
         if (locked)
-            snprintf(desc, sizeof(desc), "%s",
-                     LOC("Editing is locked until your save finishes loading."));
+            snprintf(desc, sizeof(desc),
+                     "Editing is locked until your save finishes loading.");
         else if (showCat)
-            snprintf(desc, sizeof(desc), LOC("%s, in %s."),
+            snprintf(desc, sizeof(desc), "%s, in %s.",
                      it.name, game::Inventory::CategoryName(st, cat));
         else
-            snprintf(desc, sizeof(desc), "%s", LOC("Change how many you have, or remove it."));
+            snprintf(desc, sizeof(desc), "Change how many you have, or remove it.");
 
         long long nq = 0;
         const ui::ItemEdit e = ui::ItemRow(it.name, it.icon, it.qty,
@@ -1656,7 +1672,7 @@ namespace trinity::gui
         {
             if (game::Inventory::RemoveItem(st, cat, idx))
             {
-                ui::Toast(LOC("Removed %s"), it.name);
+                ui::Toast("Removed %s", it.name);
                 game::Inventory::ForceRefresh(); // drop the row now, not in 120ms
             }
         }
@@ -2472,7 +2488,7 @@ namespace trinity::gui
 
             char subtitle[96];
             snprintf(subtitle, sizeof(subtitle), "%s  •  %s",
-                     displayName, owned ? LOC("In Inventory") : LOC("Catalog Item"));
+                     title, owned ? LOC("In Inventory") : LOC("Catalog Item"));
 
             char iconBuf[96]{};
             const char* iconToUse = nullptr;
@@ -2675,7 +2691,7 @@ namespace trinity::gui
     {
         switch (vk)
         {
-        case 0:           return LOC("None");
+        case 0:           return "None";
         case VK_INSERT:   return "Insert";
         case VK_DELETE:   return "Delete";
         case VK_HOME:     return "Home";
@@ -2730,7 +2746,7 @@ namespace trinity::gui
                 if (buf[0]) strncat(buf, " + ", sizeof(buf) - strlen(buf) - 1);
                 strncat(buf, b.name, sizeof(buf) - strlen(buf) - 1);
             }
-        return buf[0] ? buf : LOC("None");
+        return buf[0] ? buf : "None";
     }
 
     // Lowest virtual-key currently held (mouse buttons 0x01-0x06 skipped),
@@ -2774,8 +2790,8 @@ namespace trinity::gui
         // While listening, the description spells out how to finish; otherwise
         // it's the action's own explanation.
         const char* rowDesc = desc;
-        if      (capKey) rowDesc = LOC("Press the key you want to bind, or Esc to cancel.");
-        else if (capPad) rowDesc = LOC("Press the button or combo you want to bind, or Esc to cancel.");
+        if      (capKey) rowDesc = "Press the key you want to bind, or Esc to cancel.";
+        else if (capPad) rowDesc = "Press the button or combo you want to bind, or Esc to cancel.";
 
         const int capCol = capKey ? 0 : capPad ? 1 : -1;
         switch (ui::BindRow(label, cursor, keyBuf, padBuf, capCol, rowDesc))
@@ -2790,13 +2806,13 @@ namespace trinity::gui
             *keyVk = defKeyVk;
             if (capKey) s_capTarget = BindTarget::None;
             Settings::Save(); // binds persist regardless of Auto Save
-            ui::Toast(LOC("%s keyboard bind reset to %s"), label, KeyName(defKeyVk));
+            ui::Toast("%s keyboard bind reset to %s", label, KeyName(defKeyVk));
             break;
         case ui::BindEdit::ResetPad:
             *padMask = defPadMask;
             if (capPad) s_capTarget = BindTarget::None;
             Settings::Save();
-            ui::Toast(LOC("%s controller bind reset to %s"), label, PadMaskName(defPadMask));
+            ui::Toast("%s controller bind reset to %s", label, PadMaskName(defPadMask));
             break;
         default:
             break;
@@ -2866,7 +2882,7 @@ namespace trinity::gui
             {
                 *keyField = pendKey;
                 Settings::Save();                                               // binds persist regardless of Auto Save
-                ui::Toast(LOC("%s set to %s"), label, KeyName(pendKey));
+                ui::Toast("%s set to %s", label, KeyName(pendKey));
                 s_capTarget = BindTarget::None;
             }
         }
@@ -2881,7 +2897,7 @@ namespace trinity::gui
             {
                 *padField = padAccum;
                 Settings::Save();
-                ui::Toast(LOC("%s set to %s"), label, PadMaskName(padAccum));
+                ui::Toast("%s set to %s", label, PadMaskName(padAccum));
                 s_capTarget = BindTarget::None;
             }
         }
@@ -2909,11 +2925,6 @@ namespace trinity::gui
                          &s_curMenu, &st.openKeyVk, &st.openPadMask,
                          def.openKeyVk, def.openPadMask,
                          BindTarget::MenuKey, BindTarget::MenuPad);
-        if (ui::Toggle(LOC("Marker Teleport Hotkey"),
-                       &st.markerTeleportHotkey,
-                       LOC("Enables the Marker Teleport key/button. Off by default so it never "
-                           "hijacks another fast-travel mod's bind (both default to F10).")) && st.autoSave)
-            Settings::Save();
         KeybindActionRow(LOC("Marker Teleport"), LOC("Teleport directly to the map marker / custom waypoint placed on the map."),
                          &s_curMarker, &st.markerTeleportKeyVk, &st.markerTeleportPadMask,
                          def.markerTeleportKeyVk, def.markerTeleportPadMask,
@@ -3038,13 +3049,8 @@ namespace trinity::gui
         ui::Begin();
 
         bool save = false;
-
-        // Menus --- System -------------------------------------------------
-        // Debounce the Menu Scale font-atlas rebuild: dragging the slider
-        // previews the scale live via SetScale but only rebuilds fonts once,
-        // after the drag has been idle for 300ms.
         static ULONGLONG s_lastScaleChange = 0;
-        static float     s_appliedScale    = st.menuScale;
+        static float s_appliedScale = st.menuScale;
 
         if (ui::FloatOption(LOC("Menu Scale"), &st.menuScale, 0.5f, 2.5f, 0.1f, 1.0f, "%.1fx",
                             LOC("Increases or decreases the size of the entire mod menu.")))
@@ -3123,11 +3129,6 @@ namespace trinity::gui
                 loc::SetLanguage(curLang);
                 st.languageIndex = curLang;
                 snprintf(st.languageCode, sizeof(st.languageCode), "%s", loc::GetLanguageCode(curLang));
-                // NOTE: no font rebuild here. The atlas always includes the
-                // embedded zh table (see InitStyle), and English is ASCII, so
-                // en<->zh switches need no new glyphs. Rebuilding mid-game re-
-                // scanned the huge in-world loc blob and could push the atlas
-                // past the 16384px D3D12 limit -> device removed.
                 save = true;
             }
         }

@@ -2159,7 +2159,7 @@ namespace trinity::game
             { "Huroi_Leather_Boots", "Scholastone Boots" },
             { "Huroi_Leather_Helm", "Scholastone Cap" },
             { "Huskall_Leather_Armor", "Huskall Leather Armor" },
-            { "Hwando_TwoHandSword", "环刀" },
+            { "Hwando_TwoHandSword", "Hwando" },
             { "Hyde_OneHandCrossBow", "Hyde Crossbow" },
             { "Hyena_Leather_Helm", "Hyena Helm" },
             { "Hymns_of_Dusk_Fabric_Armor_I", "Musket Border Guard Standard Armor" },

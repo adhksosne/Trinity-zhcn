@@ -9,8 +9,7 @@ namespace trinity::loc
     {
         std::string name;     // Display name, e.g. "English", "简体中文", "한국어"
         std::string code;     // Language code, e.g. "en", "zh", "ko"
-        std::string filePath; // Full path to the .ini file (empty for built-in / embedded)
-        std::string embedded; // Inline translation text when the language ships inside the DLL
+        std::string filePath; // Full path to the .ini file (empty for built-in English)
     };
 
     // Initializes and scans available language files (Trinity_*.ini) beside Trinity.asi
@@ -32,10 +31,6 @@ namespace trinity::loc
 
     // Translates a UI string. If not found or English, returns the original text.
     const char* Tr(const char* text);
-
-    // Returns the concatenated key+value text of the currently loaded language
-    // file, used to build glyph coverage so every translated character renders.
-    const char* LoadedTranslationText();
 }
 
 // Convenience macro for UI localization

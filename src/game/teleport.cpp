@@ -33,6 +33,8 @@
 #include "../hooks/xinput_hook.h"
 #include "../core/logger.h"
 #include "../core/state.h"
+#include "../core/version_detect.h"
+#include "../core/version_mapping.h"
 
 namespace trinity::game
 {
@@ -145,7 +147,6 @@ namespace trinity::game
 
         alignas(8) std::atomic<uintptr_t> g_markerPlayer{0};
         std::atomic<uintptr_t> g_playerMoveOwner{0};
-        constexpr uintptr_t    kOff_MoveComp_MoveOwner = 0x298;
 
         std::array<CandidateSlot, kExpected_MarkerMatches> g_markerCandidates{};
         std::atomic<uint64_t> g_markerProtectFlag{0};
@@ -160,56 +161,6 @@ namespace trinity::game
         bool g_markerReady = false;
         bool g_markerProtectionReady = false;
         std::vector<InlineHook> g_markerHooks;
-
-        // v2.00.00 destination capture (upstream 0.17.1 sub_180011F10). In 2.0
-        // the engine updates the map marker / waypoint destination through this
-        // function; its 3rd arg (a3) points at the fresh world x,y,z. The legacy
-        // kSig_MarkerPattern capture no longer matches in 2.0, so this hook is
-        // the primary marker coordinate source there - FindActiveMarker falls
-        // back to it. NOTE: a3 is an engine argument and may live at a low
-        // address (below kMinPointer), exactly like the loco-stepper's arg3 -
-        // it must be read raw + SEH-guarded, never through mem::ReadPtr.
-        std::atomic<bool> g_destCaptured{false};
-        std::atomic<float> g_destX{0.0f}, g_destY{0.0f}, g_destZ{0.0f};
-
-        using DestinationUpdate_t = uint64_t(__fastcall*)(uint64_t, uint64_t, const float*, uint64_t);
-        DestinationUpdate_t oDestinationUpdate = nullptr;
-        void* g_destinationUpdateTarget = nullptr;
-
-        uint64_t __fastcall hkDestinationUpdate(uint64_t a1, uint64_t a2, const float* dest, uint64_t a4)
-        {
-            float x = 0.0f, y = 0.0f, z = 0.0f;
-            bool ok = false;
-            __try
-            {
-                // Raw read: the caller's stack argument may be far below
-                // kMinPointer; reading it is safe because the callee is about
-                // to dereference it anyway.
-                x = dest[0];
-                y = dest[1];
-                z = dest[2];
-                ok = true;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {}
-            if (ok)
-            {
-                // NaN / non-finite guard (matches upstream: rejects NaN bit
-                // patterns before publishing the coordinate).
-                const auto isNanBits = [](float f) {
-                    uint32_t bits = 0;
-                    memcpy(&bits, &f, sizeof(bits));
-                    return (bits & 0x7F800000u) == 0x7F800000u;
-                };
-                if (!isNanBits(x) && !isNanBits(y) && !isNanBits(z))
-                {
-                    g_destX.store(x, std::memory_order_relaxed);
-                    g_destY.store(y, std::memory_order_relaxed);
-                    g_destZ.store(z, std::memory_order_relaxed);
-                    g_destCaptured.store(true, std::memory_order_release);
-                }
-            }
-            return oDestinationUpdate(a1, a2, dest, a4);
-        }
 
         class ThreadSuspender final
         {
@@ -594,23 +545,11 @@ namespace trinity::game
             const auto origins = mem::FindAllMatches(kSig_MarkerOriginPrefix, 32);
             const auto protections = mem::FindAllMatches(kSig_MarkerProtection, 2);
 
-            if (origins.size() != 9 && origins.size() != 11)
+            if (markers.size() != kExpected_MarkerMatches || origins.size() < 6)
             {
-                LOG_WARN("teleport: marker origin signature count mismatch (origins=%zu exp=9 or 11)",
-                         origins.size());
+                LOG_WARN("teleport: marker signatures count mismatch (markers=%zu exp=%zu, origins=%zu)",
+                         markers.size(), kExpected_MarkerMatches, origins.size());
                 return false;
-            }
-
-            // v2.00.00: kSig_MarkerPattern no longer matches (the upstream 2.0
-            // adaptation dropped the pattern hooks entirely). The destination-
-            // update hook provides the marker coordinates in that case, so a
-            // pattern mismatch is a warning, not fatal - as long as the world
-            // origin resolves, the subsystem is usable.
-            if (markers.size() != kExpected_MarkerMatches)
-            {
-                LOG_WARN("teleport: marker pattern count mismatch (markers=%zu exp=%zu) - "
-                         "relying on the destination-update hook for marker coordinates.",
-                         markers.size(), kExpected_MarkerMatches);
             }
 
             std::unordered_map<uintptr_t, size_t> originVotes;
@@ -664,20 +603,9 @@ namespace trinity::game
 
             if (installedHooks == 0)
             {
-                // v2.00.00: the pattern hooks are gone, but the destination-
-                // update hook is the marker source - keep the subsystem usable
-                // when it resolved (installed before InitMarkerSubsystem runs).
-                if (g_destinationUpdateTarget)
-                {
-                    LOG_WARN("teleport: no marker hooks could be installed - "
-                             "relying on the destination-update hook for marker coordinates.");
-                }
-                else
-                {
-                    LOG_WARN("teleport: no marker hooks could be installed.");
-                    RemoveMarkerHooks();
-                    return false;
-                }
+                LOG_WARN("teleport: no marker hooks could be installed.");
+                RemoveMarkerHooks();
+                return false;
             }
 
             if (protections.size() == 1)
@@ -748,21 +676,6 @@ namespace trinity::game
                 marker = bestMarker;
                 return true;
             }
-
-            // v2.00.00 fallback: the legacy marker-pattern capture no longer
-            // matches in 2.0, so the destination-update hook (hkDestinationUpdate)
-            // is the marker source there. Its captured coordinates are world
-            // x,y,z exactly like the pattern capture produced.
-            if (g_destCaptured.load(std::memory_order_acquire))
-            {
-                marker.x = g_destX.load(std::memory_order_relaxed);
-                marker.y = g_destY.load(std::memory_order_relaxed);
-                marker.z = g_destZ.load(std::memory_order_relaxed);
-                if (ValidMarker(marker))
-                {
-                    return true;
-                }
-            }
             return false;
         }
 
@@ -774,7 +687,6 @@ namespace trinity::game
                 slot.xyBits.store(0, std::memory_order_relaxed);
                 slot.zBits.store(0, std::memory_order_relaxed);
             }
-            g_destCaptured.store(false, std::memory_order_release);
         }
 
         // Calls a data-table resolver (game thread only - it lazy-loads the
@@ -1292,48 +1204,6 @@ namespace trinity::game
         // attacks are never touched. Published so the HUD can light "FLY".
         std::atomic<bool> g_flightEngaged{false};
 
-        // --- Free Flight airborne (gliding) footprint -------------------------
-        // Code range [start,end) of the engine's air/glide locomotion function,
-        // framed by its 0xCC int3 pads. hkLocoStep checks _ReturnAddress() against
-        // this range so vertical flight control only runs while actually airborne
-        // (gliding), never during ground jog. Mirrors ReXooGen v0.18.1's approach.
-        uintptr_t g_airMoverStart = 0;
-        uintptr_t g_airMoverEnd   = 0;
-    
-        bool ResolveAirborneMover()
-        {
-            if (g_airMoverStart) return true;
-            const uintptr_t m = mem::FindPattern(kSig_FlightAirborne);
-            if (!m) return false;
-    
-            // Scan backward for the int3 pad that opens the function body.
-            uintptr_t start = 0;
-            for (uintptr_t i = 2; i < kFlight_AirbornePadScan; ++i)
-            {
-                const uint8_t b = *reinterpret_cast<uint8_t*>(m - i);
-                if (b == 0xCC)
-                {
-                    start = m - i + 2; // the byte after the pad
-                    break;
-                }
-            }
-            // Scan forward for the int3 pad that closes it.
-            uintptr_t end = 0;
-            for (uintptr_t j = 0; j < kFlight_AirbornePadScan; ++j)
-            {
-                const uint8_t b = *reinterpret_cast<uint8_t*>(m + j);
-                if (b == 0xCC)
-                {
-                    end = m + j;
-                    break;
-                }
-            }
-            if (!start || !end || end <= start) return false;
-            g_airMoverStart = start;
-            g_airMoverEnd = end;
-            return true;
-        }
-    
         struct FlyInputState
         {
             float moveX = 0.0f; // -1.0 (left) to +1.0 (right)
@@ -1424,10 +1294,10 @@ namespace trinity::game
             {
                 const uintptr_t player = g_playerMoveOwner.load(std::memory_order_relaxed);
                 uintptr_t owner = 0;
-                if (player && ReadPtr(comp + kOff_MoveComp_MoveOwner, &owner))
+                const uintptr_t moveOwnerOffset = core::MoveComponentOwnerOffsetForRevision(
+                    core::GetGameVersion().revision);
+                if (player >= kMinPointer && ReadPtr(comp + moveOwnerOffset, &owner))
                     isPlayer = (owner == player);
-                else if (!player)
-                    isPlayer = true; // Fallback before moveOwner first updates
             }
 
             // Automatic Safe Landing cushion after teleport
@@ -1444,61 +1314,177 @@ namespace trinity::game
                 }
             }
 
-            // --- Free Flight (guji-style port) -------------------------------
-            // Only when the player is genuinely airborne (gliding): this call's
-            // return address lands inside the air/glide mover footprint. No
-            // state machine, no horizontal modulation, no forced landing - we
-            // simply mirror the rise/sink buttons onto the vertical velocity
-            // (vel[1]) and let the engine resume its own physics the moment the
-            // button is released (nothing is written back).
+            // --- Free Flight: Full 3D directional propulsion & hover suspension ---
+            static bool s_flightAscended = false;
+            static float s_lastFlightY = 0.0f;
+            static int s_groundedFrames = 0;
+            static int s_forceLandFrames = 0; // Trigger Havok engine ground impact
+
             bool flyingNow = false;
-            if (isPlayer && st.freeFlight && vel)
+            bool hasHorizInput = false;
+
+            if (isPlayer && (st.freeFlight || st.superRun) && vel)
             {
-                // Lazy retry: if the airborne footprint was not yet resolved at
-                // install (e.g. world not loaded), keep trying on later frames.
-                const bool airborne =
-                    (!g_airMoverStart && !ResolveAirborneMover()) ? false :
-                    (reinterpret_cast<uintptr_t>(_ReturnAddress()) >= g_airMoverStart &&
-                     reinterpret_cast<uintptr_t>(_ReturnAddress()) < g_airMoverEnd);
+                const FlyInputState in = PollFlyInputs(st);
+                hasHorizInput = (std::abs(in.moveX) > 0.05f || std::abs(in.moveZ) > 0.05f);
 
-                if (airborne && !st.menuOpen && !st.textCapture)
+                if (st.freeFlight)
                 {
-                    const FlyInputState in = PollFlyInputs(st);
-                    const bool rise = in.up && !in.down;
-                    const bool sink = in.down && !in.up;
-
-                    if (rise || sink)
+                    // Ascend input activates airborne flight mode
+                    if (in.up)
                     {
-                        constexpr float kMaxSafeVerticalSpeed = 35.0f;
-                        const float vert = (st.flightSpeed > kMaxSafeVerticalSpeed) ? kMaxSafeVerticalSpeed : st.flightSpeed;
-                        RawWriteFloat(vel + 1, rise ? vert : -vert);
-                        flyingNow = true;
+                        s_flightAscended = true;
+                        s_groundedFrames = 0;
                     }
-                    // rise||sink == false (released, or both held): write nothing.
-                    // The engine's gravity/glide physics take over -> natural descent.
+
+                    // If user is holding down to descend, detect ground contact and return to walking
+                    if (s_flightAscended && in.down)
+                    {
+                        const float curY = g_posY.load(std::memory_order_relaxed);
+                        if (std::abs(curY - s_lastFlightY) < 0.05f)
+                        {
+                            if (++s_groundedFrames > 10)
+                            {
+                                s_flightAscended = false;
+                                s_groundedFrames = 0;
+                                s_forceLandFrames = 2; // Force ground impact to restore friction
+                            }
+                        }
+                        else
+                        {
+                            s_groundedFrames = 0;
+                        }
+                        s_lastFlightY = curY;
+                    }
+
+                    // Buoyant micro-oscillation: keeps the Havok character velocity active so the engine
+                    // fall-watchdog timer (void recovery / infinite fall reset) never triggers when hovering.
+                    static uint64_t s_hoverCounter = 0;
+                    ++s_hoverCounter;
+                    const float hoverMicroLift = ((s_hoverCounter % 2) == 0) ? 0.004f : -0.004f;
+
+                    if (s_flightAscended)
+                    {
+                        // When mod menu is open or text is being captured while airborne, hover in place
+                        if (st.menuOpen || st.textCapture)
+                        {
+                            RawWriteFloat(vel,     0.0f);
+                            RawWriteFloat(vel + 1, hoverMicroLift);
+                            RawWriteFloat(vel + 2, 0.0f);
+                            flyingNow = true;
+                        }
+                        else
+                        {
+                            // Vertical flight: Up (ascend), Down (descend), or Hover (stay aloft)
+                            constexpr float kMaxSafeVerticalSpeed = 35.0f;
+                            const float safeFlightSpeed = (st.flightSpeed > kMaxSafeVerticalSpeed) ? kMaxSafeVerticalSpeed : st.flightSpeed;
+
+                            if (in.up && !in.down)
+                            {
+                                RawWriteFloat(vel + 1, safeFlightSpeed);
+                                flyingNow = true;
+                            }
+                            else if (in.down && !in.up)
+                            {
+                                RawWriteFloat(vel + 1, -safeFlightSpeed);
+                                flyingNow = true;
+                            }
+                            else
+                            {
+                                // Hover in air: buoyant lift holds altitude
+                                RawWriteFloat(vel + 1, hoverMicroLift);
+                                flyingNow = true;
+                            }
+
+                            // Horizontal Flight: Scale native camera-relative movement smoothly with hard safety ceiling
+                            float vx = 0.0f, vz = 0.0f;
+                            RawReadFloat(vel, &vx);
+                            RawReadFloat(vel + 2, &vz);
+                            const float curSpeedSq = vx * vx + vz * vz;
+
+                            if (curSpeedSq > 0.0001f && hasHorizInput)
+                            {
+                                const float horizMult = (st.flightSpeed >= 1.0f) ? (st.flightSpeed * 0.75f + 1.0f) : 1.0f;
+                                const float speedMult = (st.superRun && st.superRunMult > 1.0f) ? st.superRunMult : 1.0f;
+                                float targetVx = vx * horizMult * speedMult;
+                                float targetVz = vz * horizMult * speedMult;
+
+                                // BlackSpace Engine Havok character controller safe maximum speed limit (35.0f m/s)
+                                // Speeds beyond ~35.0f-40.0f while Gliding cause physics broadphase overflow, wing glider stall, and CTD.
+                                constexpr float kMaxSafeFlightSpeed = 35.0f;
+                                const float targetSpeed = std::sqrt(targetVx * targetVx + targetVz * targetVz);
+                                if (targetSpeed > kMaxSafeFlightSpeed)
+                                {
+                                    const float scale = kMaxSafeFlightSpeed / targetSpeed;
+                                    targetVx *= scale;
+                                    targetVz *= scale;
+                                }
+
+                                RawWriteFloat(vel,     targetVx);
+                                RawWriteFloat(vel + 2, targetVz);
+                                flyingNow = true;
+                            }
+                            else if (!hasHorizInput)
+                            {
+                                // No movement input: dampen horizontal momentum to hover cleanly in place
+                                RawWriteFloat(vel,     0.0f);
+                                RawWriteFloat(vel + 2, 0.0f);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    if (s_flightAscended)
+                    {
+                        s_forceLandFrames = 2; // Force ground impact if disabled while flying
+                    }
+                    s_flightAscended = false;
+                    s_groundedFrames = 0;
                 }
             }
-            if (isPlayer)
-                g_flightEngaged.store(flyingNow, std::memory_order_relaxed);
 
-            // Ground locomotion: Super Run applies when player is on ground / not airborne flight
-            if (isPlayer && st.superRun && !flyingNow && st.superRunMult != 1.0f && vel)
+            if (isPlayer)
+            {
+                g_flightEngaged.store(flyingNow, std::memory_order_relaxed);
+                
+                // Force a gentle downward spike so the physics engine registers a soft landing
+                // and kill horizontal momentum so they don't air-dash into the ground.
+                if (s_forceLandFrames > 0 && vel)
+                {
+                    RawWriteFloat(vel, 0.0f);
+                    RawWriteFloat(vel + 1, -4.0f);
+                    RawWriteFloat(vel + 2, 0.0f);
+                    s_forceLandFrames--;
+                }
+            }
+
+            // Ground locomotion: Super Run applies ONLY when player is actively providing directional movement input!
+            // When stationary or during stationary animations (picking up items, gathering, looting, dialogue),
+            // do NOT multiply root-motion velocity to prevent the character from being catapulted into the air.
+            if (isPlayer && st.superRun && !flyingNow && st.superRunMult != 1.0f && vel && hasHorizInput && !st.menuOpen && !st.textCapture)
             {
                 float x = 0.0f, z = 0.0f; // vel[0]=x, vel[1]=up, vel[2]=z
                 if (RawReadFloat(vel, &x) && RawReadFloat(vel + 2, &z))
                 {
-                    float targetX = x * st.superRunMult;
-                    float targetZ = z * st.superRunMult;
-                    constexpr float kMaxSafeGroundSpeed = 50.0f;
-                    const float groundSpeed = std::sqrt(targetX * targetX + targetZ * targetZ);
-                    if (groundSpeed > kMaxSafeGroundSpeed)
+                    const float curHorizSpeed = std::sqrt(x * x + z * z);
+                    // Only scale if the base movement velocity is above minimum walking threshold (> 0.15 m/s)
+                    // This strictly filters out pickup / gathering / looting root-motion micro-displacements.
+                    if (curHorizSpeed > 0.15f)
                     {
-                        const float scale = kMaxSafeGroundSpeed / groundSpeed;
-                        targetX *= scale;
-                        targetZ *= scale;
+                        float targetX = x * st.superRunMult;
+                        float targetZ = z * st.superRunMult;
+                        constexpr float kMaxSafeGroundSpeed = 50.0f;
+                        const float groundSpeed = std::sqrt(targetX * targetX + targetZ * targetZ);
+                        if (groundSpeed > kMaxSafeGroundSpeed)
+                        {
+                            const float scale = kMaxSafeGroundSpeed / groundSpeed;
+                            targetX *= scale;
+                            targetZ *= scale;
+                        }
+                        RawWriteFloat(vel,     targetX);
+                        RawWriteFloat(vel + 2, targetZ);
                     }
-                    RawWriteFloat(vel,     targetX);
-                    RawWriteFloat(vel + 2, targetZ);
                 }
             }
 
@@ -1748,6 +1734,8 @@ namespace trinity::game
         // menu just stays empty (logged).
         uintptr_t travel = mem::FindPattern(kSig_TravelToNode);
         if (!travel)
+            travel = mem::FindPattern(kSig_TravelToNode_Pre201);
+        if (!travel)
             travel = mem::FindPattern(kSig_TravelToNode_Legacy);
 
         if (travel)
@@ -1776,26 +1764,12 @@ namespace trinity::game
 
         // Locomotion sub-step driver for Super Run (optional - Super Jump and
         // everything else still works without it).
-        mem::InstallHook("teleport: locomotion-stepper", kSig_LocoStepper, "Super Run disabled",
-                         &hkLocoStep, &oLocoStep, &g_locoStepTarget);
-
-        // Resolve the airborne (glide) mover footprint for Free Flight. If it
-        // does not resolve, Free Flight is inert (ground jog untouched) while
-        // Super Run / Super Jump stay available.
-        if (ResolveAirborneMover())
-            LOG_OK("teleport: raised airborne mover @ 0x%llX..0x%llX - Free Flight ready.",
-                   (unsigned long long)g_airMoverStart, (unsigned long long)g_airMoverEnd);
-        else
-            LOG_WARN("teleport: airborne mover NOT FOUND - Free Flight disabled (Super Run unaffected).");
-
-        // v2.00.00 destination-update hook: the primary marker coordinate
-        // source in 2.0 (the legacy kSig_MarkerPattern capture no longer
-        // matches there). Installed before InitMarkerSubsystem so its degrade
-        // paths can rely on this being present. Non-fatal - on 1.17/1.18 the
-        // pattern capture stays the source and FindActiveMarker prefers it.
-        mem::InstallHook("teleport: destination-update", kSig_DestinationUpdate,
-                         "Teleport to Destination disabled", hkDestinationUpdate,
-                         &oDestinationUpdate, &g_destinationUpdateTarget);
+        if (!mem::InstallHook("teleport: locomotion-stepper", kSig_LocoStepper, "",
+                              &hkLocoStep, &oLocoStep, &g_locoStepTarget))
+        {
+            mem::InstallHook("teleport: locomotion-stepper (pre-2.01)", kSig_LocoStepper_Pre201,
+                             "Super Run disabled", &hkLocoStep, &oLocoStep, &g_locoStepTarget);
+        }
 
         // Map Marker Teleport subsystem (clean-room marker capture from crimsondesert-main).
         InitMarkerSubsystem();
@@ -1807,9 +1781,6 @@ namespace trinity::game
     {
         RemoveMarkerHooks();
         g_markerReady = false;
-        g_destCaptured.store(false, std::memory_order_release);
-        mem::RemoveHook(&g_destinationUpdateTarget);
-        oDestinationUpdate = nullptr;
         mem::RemoveHook(&g_locoStepTarget);
         mem::RemoveHook(&g_moveUpdateTarget);
         g_posValid.store(false, std::memory_order_relaxed);
@@ -2022,23 +1993,6 @@ namespace trinity::game
         g_pendingDestZ.store(destination.z, std::memory_order_relaxed);
         g_pendingMarkerTp.store(true, std::memory_order_release);
 
-        // Immediate application fallback
-        __try
-        {
-            if (moveOwner >= kMinPointer)
-            {
-                *reinterpret_cast<Vec3*>(moveOwner + kOff_Player_Dest0) = destination;
-                *reinterpret_cast<Vec3*>(moveOwner + kOff_Player_Dest1) = destination;
-                *reinterpret_cast<Vec3*>(moveOwner + 0xC0) = Vec3{ 0.0f, 0.0f, 0.0f };
-            }
-            if (markerPlayer >= kMinPointer && markerPlayer != moveOwner)
-            {
-                *reinterpret_cast<Vec3*>(markerPlayer + kOff_Player_Dest0) = destination;
-                *reinterpret_cast<Vec3*>(markerPlayer + kOff_Player_Dest1) = destination;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {}
-
         ClearActiveMarker();
         return MarkerStatus::Success;
     }
@@ -2061,22 +2015,6 @@ namespace trinity::game
         g_pendingDestY.store(destination.y, std::memory_order_relaxed);
         g_pendingDestZ.store(destination.z, std::memory_order_relaxed);
         g_pendingMarkerTp.store(true, std::memory_order_release);
-
-        __try
-        {
-            if (moveOwner >= kMinPointer)
-            {
-                *reinterpret_cast<Vec3*>(moveOwner + kOff_Player_Dest0) = destination;
-                *reinterpret_cast<Vec3*>(moveOwner + kOff_Player_Dest1) = destination;
-                *reinterpret_cast<Vec3*>(moveOwner + 0xC0) = Vec3{ 0.0f, 0.0f, 0.0f };
-            }
-            if (markerPlayer >= kMinPointer && markerPlayer != moveOwner)
-            {
-                *reinterpret_cast<Vec3*>(markerPlayer + kOff_Player_Dest0) = destination;
-                *reinterpret_cast<Vec3*>(markerPlayer + kOff_Player_Dest1) = destination;
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {}
 
         return true;
     }

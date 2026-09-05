@@ -12,7 +12,6 @@
 
 #include "../core/state.h"
 #include "../core/localization.h"
-#include "../game/dye.h"
 
 namespace trinity::ui
 {
@@ -333,9 +332,9 @@ namespace trinity::ui
     {
         char fullDesc[256];
         if (buff && buff[0])
-            snprintf(fullDesc, sizeof(fullDesc), "%s  [%s: %s]", desc ? desc : LOC("Socket this abyss gear."), LOC("Effect"), LOC(buff));
+            snprintf(fullDesc, sizeof(fullDesc), "%s  [Effect: %s]", desc ? desc : "Socket this abyss gear.", buff);
         else
-            snprintf(fullDesc, sizeof(fullDesc), "%s", desc ? desc : LOC("Socket this abyss gear."));
+            snprintf(fullDesc, sizeof(fullDesc), "%s", desc ? desc : "Socket this abyss gear.");
 
         const float s = g_scale;
         char fittedLabel[192];
@@ -343,7 +342,7 @@ namespace trinity::ui
         if (buff && buff[0])
         {
             const float bFSz = g_fontBody->FontSize * 0.88f;
-            const float bW = g_fontBody->CalcTextSizeA(bFSz, FLT_MAX, 0.0f, LOC(buff)).x;
+            const float bW = g_fontBody->CalcTextSizeA(bFSz, FLT_MAX, 0.0f, buff).x;
             const float rowW = g_width;
             const float textX = (icon && icon[0]) ? 40.0f * s : 14.0f * s;
             const float avail = rowW - textX - bW - 32.0f * s;
@@ -360,11 +359,11 @@ namespace trinity::ui
         {
             ImDrawList* dl = DL();
             const float bFSz = g_fontBody->FontSize * 0.88f;
-            const float bW = g_fontBody->CalcTextSizeA(bFSz, FLT_MAX, 0.0f, LOC(buff)).x;
+            const float bW = g_fontBody->CalcTextSizeA(bFSz, FLT_MAX, 0.0f, buff).x;
             const float bY = (r.mn.y + r.mx.y - bFSz) * 0.5f;
             dl->AddText(g_fontBody, bFSz,
                         ImVec2(r.mx.x - bW - 16.0f * s, bY),
-                        IM_COL32(100, 220, 130, 255), LOC(buff));
+                        IM_COL32(100, 220, 130, 255), buff);
         }
         return r.activated;
     }
@@ -943,31 +942,6 @@ namespace trinity::ui
         return r.activated;
     }
 
-    bool SubmenuDyeItem(const char* label, const char* icon, const char* id,
-                        const game::Dye::SlotInfo& si, const char* desc)
-    {
-        RowResult r = RowBase(label, desc, RowKind::Submenu, icon);
-        if (r.selected)
-        {
-            SetDyeSlotTooltip(si);
-        }
-        if (r.drawn)
-        {
-            ImDrawList* dl = DL();
-            const float s  = g_scale;
-            ArrowH(dl, ImVec2(r.mx.x - 20.0f * s, (r.mn.y + r.mx.y) * 0.5f), 5.0f * s, true,
-                   r.selected ? theme::TextBright : theme::TextDim);
-        }
-        if (r.activated)
-        {
-            char title[96];
-            snprintf(title, sizeof(title), "%s", label);
-            if (char* cut = strstr(title, "  ("))
-                *cut = 0;
-            RequestPush(id, title);
-        }
-        return r.activated;
-    }
     bool Search(char* buf, size_t cap, const char* desc)
     {
         g_captureSeen = true;
@@ -1116,7 +1090,7 @@ namespace trinity::ui
             else
             {
                 snprintf(text, sizeof(text), "%s",
-                         buf[0] ? buf : g_padActive ? LOC("A to edit") : LOC("Enter to edit"));
+                         buf[0] ? buf : g_padActive ? "A to edit" : "Enter to edit");
             }
 
             const ImU32 col = typing      ? theme::TextBright
@@ -1430,9 +1404,9 @@ namespace trinity::ui
         // out what the next press does - the whole point of confirming is lost
         // if the row looks unchanged.
         if (armed && r.selected)
-            snprintf(g_selectedDesc, sizeof(g_selectedDesc), "%s",
-                     LOC("Remove %s for good? This cannot be undone - press %s again to "
-                         "confirm, or move away to keep it."),
+            snprintf(g_selectedDesc, sizeof(g_selectedDesc),
+                     "Remove %s for good? This cannot be undone - press %s again to "
+                     "confirm, or move away to keep it.",
                      label, g_padActive ? "X" : "Del");
 
         if (editing)
@@ -1444,7 +1418,7 @@ namespace trinity::ui
         {
             // Short enough to sit in the value column - the description carries
             // the actual warning.
-            DrawRowValue(r, LOC("Remove?"), false, theme::Accent);
+            DrawRowValue(r, "Remove?", false, theme::Accent);
         }
         else
         {
@@ -1585,8 +1559,8 @@ namespace trinity::ui
             const float tw = g_fontBody->CalcTextSizeA(fz, FLT_MAX, 0.0f, t).x;
             dl->AddText(g_fontBody, fz, ImVec2(x + (w - tw) * 0.5f, ty), theme::TextDim, t);
         };
-        title(LOC("Keyboard"),   keyX);
-        title(LOC("Controller"), padX);
+        title("Keyboard",   keyX);
+        title("Controller", padX);
 
         // The header eats vertical space before the first row, but End()
         // positions the selection highlight and scrollbar from g_listTop using

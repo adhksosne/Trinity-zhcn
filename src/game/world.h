@@ -8,13 +8,16 @@ namespace trinity::game
     // be unavailable (signature drift after a patch) without disabling the
     // other; each has its own Ready() check.
     //
-    // Game Speed - see offsets.h kSig_FrameTimerBody for the full mechanism:
-    // the engine's frame-timer update owns a timing struct whose mode byte
-    // (+0x50) and time-scale multiplier (+0x54) control the master delta the
-    // whole simulation - animation, physics, AI, ability timers - advances by.
-    // We hook it (prologue back-scan from the body signature) and each frame
-    // set mode=1 + multiplier=gameSpeedMult while enabled; off restores
-    // mode=0 + 1.0x so the engine uses its own real-time delta.
+    // Game Speed - see offsets.h kSig_GameSpeed for the full mechanism: the
+    // engine's per-frame timing update carries a fixed-timestep override
+    // (its own video/demo-capture path) that, when a flag byte is set,
+    // replaces the measured frame delta with a fixed value. That master
+    // delta is what the whole simulation - animation, physics, AI, ability
+    // timers - advances by, so overriding it dilates game time uniformly.
+    // We resolve the flag byte + value float from the override block's RIP
+    // operands at load, then each game tick write value = mult/60 and hold
+    // the flag on while enabled; turning it off clears the flag once, so the
+    // engine returns to its own real-time delta.
     //
     //  NOTE: this dilates CLIENT simulation time. Server-authoritative systems
     //  (some cooldowns, inventory reconcile) do not scale with it, so very high

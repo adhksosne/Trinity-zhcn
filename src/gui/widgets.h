@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include "../game/equipment.h"
-#include "../game/dye.h"
 
 namespace trinity::ui
 {
@@ -90,8 +89,6 @@ namespace trinity::ui
     // Submenu with full equipment slot info for rich side-panel stats and sockets preview.
     bool SubmenuEquipItem(const char* label, const char* icon, const char* id,
                           const game::Equipment::SlotInfo& si, const char* desc = nullptr);
-    bool SubmenuDyeItem(const char* label, const char* icon, const char* id,
-                        const game::Dye::SlotInfo& si, const char* desc = nullptr);
 
     // Type-to-filter row for long lists. Activating it starts text capture
     // (all keyboard input is swallowed from the game while typing - see

@@ -1,4 +1,4 @@
-﻿#include "localization.h"
+#include "localization.h"
 
 #include <Windows.h>
 #include <cstdio>
@@ -11,7 +11,6 @@
 
 #include "mod.h"
 #include "logger.h"
-#include "languages_embedded.h"
 
 namespace trinity::loc
 {
@@ -20,9 +19,8 @@ namespace trinity::loc
         std::mutex s_mutex;
         std::vector<LanguageInfo> s_languages;
         int s_currentIndex = 0;
-        std::string s_currentCode = "zh"; // prefer Simplified Chinese on first load
+        std::string s_currentCode = "en";
         std::unordered_map<std::string, std::string> s_translations;
-        std::string s_translationText; // concatenated key+value text for glyph coverage
 
         std::string GetModuleDir()
         {
@@ -58,26 +56,22 @@ namespace trinity::loc
             return s.substr(first, (last - first + 1));
         }
 
-        void RebuildTranslationText()
-        {
-            s_translationText.clear();
-            s_translationText.reserve(s_translations.size() * 48);
-            for (const auto& kv : s_translations)
-            {
-                s_translationText += kv.first;
-                s_translationText += kv.second;
-            }
-        }
-
-        // Parses key=value lines from an in-memory stream of a language file.
-        void LoadLanguageStream(std::istream& stream, const char* sourceLabel)
+        void LoadLanguageFile(const std::string& filePath)
         {
             s_translations.clear();
-            s_translationText.clear();
+            if (filePath.empty())
+                return; // English / built-in
+
+            std::ifstream file(filePath);
+            if (!file.is_open())
+            {
+                LOG_WARN("localization: failed to open language file: %s", filePath.c_str());
+                return;
+            }
 
             std::string line;
             std::string currentSection = "";
-            while (std::getline(stream, line))
+            while (std::getline(file, line))
             {
                 std::string trimmed = Trim(line);
                 if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#')
@@ -103,36 +97,7 @@ namespace trinity::loc
                     }
                 }
             }
-            LOG_OK("localization: loaded %zu translations (embedded: %s)", s_translations.size(), sourceLabel);
-            RebuildTranslationText();
-        }
-
-        void LoadLanguageFile(const std::string& filePath)
-        {
-            if (filePath.empty())
-            {
-                s_translations.clear();
-                s_translationText.clear();
-                return; // English / built-in (no embedded content)
-            }
-
-            std::ifstream file(filePath);
-            if (!file.is_open())
-            {
-                LOG_WARN("localization: failed to open language file: %s", filePath.c_str());
-                return;
-            }
-            std::stringstream ss;
-            ss << file.rdbuf();
-            LOG_OK("localization: loaded language file %s", filePath.c_str());
-            LoadLanguageStream(ss, filePath.c_str());
-        }
-
-        // Loads a language whose text ships inside the DLL (no external .ini).
-        void LoadLanguageEmbedded(const std::string& content)
-        {
-            std::stringstream ss(content);
-            LoadLanguageStream(ss, "built-in");
+            LOG_OK("localization: loaded %zu translations from %s", s_translations.size(), filePath.c_str());
         }
 
         bool ReadLanguageHeader(const std::string& filePath, std::string& outName, std::string& outCode)
@@ -230,14 +195,10 @@ namespace trinity::loc
         RefreshLanguages();
     }
 
-    // Seeds the always-present built-in language pair (English + embedded
-    // Simplified Chinese). Called by RefreshLanguages() and, defensively, by
-    // GetLanguageCount(), so the menu Language selector can never disappear:
-    // langCount is guaranteed to be >= 2 even if this is queried before Init().
-    void SeedBuiltinLanguages()
+    void RefreshLanguages()
     {
-        if (!s_languages.empty())
-            return;
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_languages.clear();
 
         // 0: Always Built-in English
         LanguageInfo en;
@@ -245,23 +206,6 @@ namespace trinity::loc
         en.code = "en";
         en.filePath = "";
         s_languages.push_back(en);
-
-        // 1: Built-in Simplified Chinese (ships inside the DLL). A disk file
-        // with the same code (Trinity_zh.ini) replaces it, so external overrides
-        // still win; with no file present the embedded copy is used.
-        LanguageInfo zh;
-        zh.name = "简体中文 (Chinese)";
-        zh.code = "zh";
-        zh.filePath = "";
-        zh.embedded = kEmbeddedZh;
-        s_languages.push_back(zh);
-    }
-
-    void RefreshLanguages()
-    {
-        std::lock_guard<std::mutex> lock(s_mutex);
-        s_languages.clear();
-        SeedBuiltinLanguages();
 
         const std::string dir = GetModuleDir();
         if (!dir.empty())
@@ -285,21 +229,7 @@ namespace trinity::loc
                                 {
                                     if (existing.code == code) { exists = true; break; }
                                 }
-                                if (exists)
-                                {
-                                    // External file overrides an embedded language with the same code.
-                                    for (auto& existing : s_languages)
-                                    {
-                                        if (existing.code == code)
-                                        {
-                                            existing.name = name;
-                                            existing.filePath = fullPath;
-                                            existing.embedded.clear();
-                                            break;
-                                        }
-                                    }
-                                }
-                                else
+                                if (!exists)
                                 {
                                     LanguageInfo lang;
                                     lang.name = name;
@@ -333,10 +263,7 @@ namespace trinity::loc
         }
         s_currentIndex = foundIdx;
         s_currentCode = s_languages[foundIdx].code;
-        if (s_languages[foundIdx].filePath.empty() && !s_languages[foundIdx].embedded.empty())
-            LoadLanguageEmbedded(s_languages[foundIdx].embedded);
-        else
-            LoadLanguageFile(s_languages[foundIdx].filePath);
+        LoadLanguageFile(s_languages[foundIdx].filePath);
     }
 
     const std::vector<LanguageInfo>& GetLanguages()
@@ -346,10 +273,6 @@ namespace trinity::loc
 
     int GetLanguageCount()
     {
-        // Defensive: the built-in en+zh pair is always present, but if this is
-        // ever queried before Init() (or after a list clear) reseed so the
-        // menu Language selector can never disappear.
-        SeedBuiltinLanguages();
         return static_cast<int>(s_languages.size());
     }
 
@@ -380,10 +303,7 @@ namespace trinity::loc
 
         s_currentIndex = index;
         s_currentCode = s_languages[index].code;
-        if (s_languages[index].filePath.empty() && !s_languages[index].embedded.empty())
-            LoadLanguageEmbedded(s_languages[index].embedded);
-        else
-            LoadLanguageFile(s_languages[index].filePath);
+        LoadLanguageFile(s_languages[index].filePath);
     }
 
     void SetLanguageByCode(const char* code)
@@ -398,11 +318,6 @@ namespace trinity::loc
             {
                 s_currentIndex = static_cast<int>(i);
                 s_currentCode = s_languages[i].code;
-                if (s_languages[i].filePath.empty() && !s_languages[i].embedded.empty())
-                {
-                    LoadLanguageEmbedded(s_languages[i].embedded);
-                    return;
-                }
                 LoadLanguageFile(s_languages[i].filePath);
                 return;
             }
@@ -423,10 +338,5 @@ namespace trinity::loc
             return it->second.c_str();
 
         return text;
-    }
-
-    const char* LoadedTranslationText()
-    {
-        return s_translationText.c_str();
     }
 }
