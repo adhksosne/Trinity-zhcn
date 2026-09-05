@@ -2059,7 +2059,7 @@ namespace trinity::game
         if (currentCtor && currentMatches == 1)
         {
             oItemValueCtor = reinterpret_cast<ItemValueCtor_t>(currentCtor);
-            LOG_OK("inventory: TrItemValue TU 2.01 native ctor resolved at %p",
+            LOG_OK("inventory: TrItemValue TU 2.01.00 native ctor resolved at %p",
                    reinterpret_cast<void*>(currentCtor));
         }
         else if (allowLegacyFuzzy)
@@ -2129,7 +2129,7 @@ namespace trinity::game
             // TU 2.01 removed the old five-argument setter ABI.  Apply the
             // complete bucket state every game tick instead; this updates the
             // expansion, delta, and derived-cap fields on both realms.
-            LOG_OK("inventory: TU 2.01 continuous slot-expansion guard active.");
+            LOG_OK("inventory: TU 2.01.00 continuous slot-expansion guard active.");
         }
         else if (!mem::InstallHook("inventory: slot-expansion setter", kSig_InvSetExpandSlots,
                                    "Slot Size will not apply",
@@ -2153,10 +2153,10 @@ namespace trinity::game
         // reconcile reverts them (the menu still lists/reads fine).
         if (revision == 2760)
         {
-            if (mem::InstallHook("inventory: TU 2.01 transaction commit", kSig_InvCommit,
+            if (mem::InstallHook("inventory: TU 2.01.00 transaction commit", kSig_InvCommit,
                                  "quantity edits will not persist (revert on reconcile)",
                                  &hkCommit201, &oCommit201, &g_commit201Target, 2))
-                LOG_OK("inventory: TU 2.01 transaction commit hook installed @ %p",
+                LOG_OK("inventory: TU 2.01.00 transaction commit hook installed @ %p",
                        g_commit201Target);
         }
         else
@@ -2170,7 +2170,7 @@ namespace trinity::game
         // Catches containers that only appear later (e.g. character swap).
         if (revision == 2760)
         {
-            mem::InstallHook("inventory: TU 2.01 holder-insert", kSig_InvHolderInsert201,
+            mem::InstallHook("inventory: TU 2.01.00 holder-insert", kSig_InvHolderInsert201,
                              "Add Item will be refused and server holder capture is limited",
                              &hkHolderInsert, &oHolderInsert, &g_insTarget, 2);
         }

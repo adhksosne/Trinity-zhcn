@@ -896,7 +896,7 @@ namespace trinity::game
         // guard on this build; do not search/hook a stale ABI.
         if (core::GetGameVersion().revision == 2760)
         {
-            LOG_OK("player: TU 2.01 continuous stat-pin guard active (all resolved characters).");
+            LOG_OK("player: TU 2.01.00 continuous stat-pin guard active (all resolved characters).");
         }
         else
         {

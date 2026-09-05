@@ -139,6 +139,7 @@ namespace trinity
 
         m_initialized = true;
         LOG_OK("Ready - INSERT (or LB + DOWN on controller) toggles the menu in-game.");
+        LOG_OK("If something isn't working or you'd like to leave a comment, visit my blog: https://mul0.com/trainer/crimson-desert-trinity-mod-menu/");
     }
 
     void Mod::Shutdown()
