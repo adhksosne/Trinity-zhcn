@@ -69,6 +69,8 @@ add_library(Trinity SHARED
     src/game/teleport.cpp
     src/game/inventory.cpp
     src/game/inventory_logic.cpp
+    src/game/player_logic.cpp
+    src/game/equipment_logic.cpp
     src/game/world.cpp
     src/game/dye.cpp
     src/game/equipment.cpp
@@ -127,6 +129,8 @@ if(BUILD_TESTING)
         src/core/version_mapping.cpp
         src/game/friendly_logic.cpp
         src/game/inventory_logic.cpp
+        src/game/player_logic.cpp
+        src/game/equipment_logic.cpp
         src/mem/section_filter.cpp
     )
     target_include_directories(TrinityReadinessTests PRIVATE src)

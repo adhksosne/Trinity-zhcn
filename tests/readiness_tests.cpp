@@ -3,6 +3,8 @@
 #include "../src/game/crime_hook_contract.h"
 #include "../src/game/inventory_hook_contract.h"
 #include "../src/game/inventory_logic.h"
+#include "../src/game/player_logic.h"
+#include "../src/game/equipment_logic.h"
 #include "../src/game/offsets.h"
 #include "../src/mem/section_filter.h"
 
@@ -190,6 +192,58 @@ namespace
                "distinct client and server holders may commit an authoritative add");
     }
 
+    void AddItemRetriesOnlyWhileAuthorityIsMissing()
+    {
+        using trinity::game::ShouldRetryAuthoritativeAdd;
+
+        Expect(ShouldRetryAuthoritativeAdd(true, true, 0x1000, 0, 0, 120),
+               "a ready add may wait for the server holder");
+        Expect(!ShouldRetryAuthoritativeAdd(true, true, 0x1000, 0, 120, 120),
+               "an authority wait must stop at the retry limit");
+        Expect(!ShouldRetryAuthoritativeAdd(true, true, 0x1000, 0x2000, 0, 120),
+               "a complete authority pair must commit instead of retrying");
+        Expect(!ShouldRetryAuthoritativeAdd(false, true, 0x1000, 0, 0, 120),
+               "an incomplete engine path must fail instead of retrying forever");
+    }
+
+    void GodModeRequiresStrictPlayerTarget()
+    {
+        using trinity::game::ShouldBlockPlayerDamage;
+
+        Expect(ShouldBlockPlayerDamage(false, true, false) == false,
+               "God Mode off must never block damage");
+        Expect(ShouldBlockPlayerDamage(true, false, false) == false,
+               "God Mode must not block damage to an unclassified enemy");
+        Expect(ShouldBlockPlayerDamage(true, true, false),
+               "God Mode blocks damage to a strict player target");
+        Expect(ShouldBlockPlayerDamage(true, false, true),
+               "God Mode blocks damage to a tracked mount");
+    }
+
+    void PartyIndexWinsForSelectedEquipmentComponent()
+    {
+        using trinity::game::AcceptCharacterComponent;
+
+        Expect(AcceptCharacterComponent(2, 1, 2),
+               "the selected Oongka party actor must not be rejected by stale gear identity");
+        Expect(AcceptCharacterComponent(2, -1, 2),
+               "an unidentified selected party actor remains usable");
+        Expect(!AcceptCharacterComponent(2, 1, 1),
+               "a different party actor cannot be used for Oongka");
+    }
+
+    void PartyContainerIdentityWinsOverStaleGearIdentity()
+    {
+        using trinity::game::PreferPartyCharacterIndex;
+
+        Expect(PreferPartyCharacterIndex(2, 0) == 2,
+               "the active Oongka container must not fall back to stale Kliff gear");
+        Expect(PreferPartyCharacterIndex(-1, 1) == 1,
+               "gear identity remains a fallback when party order is unavailable");
+        Expect(PreferPartyCharacterIndex(-1, -1) == -1,
+               "unknown character identity must remain unknown");
+    }
+
     void TrustRecordUsesTheCopiedValueField()
     {
         Expect(trinity::game::kOff_FriendlyRec_Value == 0x20,
@@ -222,6 +276,10 @@ int main()
     TrustScalingUsesTheFirstPositiveGain();
     CachedTrustBaselineWinsOverAliasedLiveRecord();
     AddItemRequiresAnAuthoritativeServerHolder();
+    AddItemRetriesOnlyWhileAuthorityIsMissing();
+    GodModeRequiresStrictPlayerTarget();
+    PartyIndexWinsForSelectedEquipmentComponent();
+    PartyContainerIdentityWinsOverStaleGearIdentity();
     TrustRecordUsesTheCopiedValueField();
     ExecutableDebugSectionIsScanned();
     if (failures == 0)

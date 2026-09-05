@@ -19,6 +19,7 @@
 #include "../core/logger.h"
 #include "../core/state.h"
 #include "../core/version_detect.h"
+#include "player_logic.h"
 
 namespace trinity::game
 {
@@ -630,6 +631,16 @@ namespace trinity::game
             return false;
         }
 
+        // targetOwner is the victim's strict battle-vital identity. Do not
+        // classify it through broad owner/actor aliases: those aliases are
+        // needed for attacker discovery and can overlap during companion
+        // swaps, which made enemies intermittently look like players.
+        bool IsStrictPlayerTarget(uintptr_t target)
+        {
+            if (target < kMinPointer) return false;
+            return InSet(g_targetOwners, kMaxPlayers, target);
+        }
+
         bool IsMountEntity(uintptr_t target)
         {
             if (target < kMinPointer) return false;
@@ -646,7 +657,7 @@ namespace trinity::game
             const State& st = State::Get();
 
             // Victim is Player (Incoming Hit)
-            if (IsPlayerEntity(targetOwner))
+            if (IsStrictPlayerTarget(targetOwner))
             {
                 if (st.godMode) return 0;
                 if (st.dmgInMult != 1.0f)
@@ -721,7 +732,7 @@ namespace trinity::game
         {
             const State& st = State::Get();
             const uintptr_t owner = reinterpret_cast<uintptr_t>(targetOwner);
-            const bool isPlayerTarget = IsPlayerEntity(owner);
+            const bool isPlayerTarget = IsStrictPlayerTarget(owner);
             const bool isMountTarget  = IsMountEntity(owner);
 
             // Determine if damage source is an active hostile enemy vs environmental/fall impact
@@ -753,7 +764,7 @@ namespace trinity::game
             {
                 if (statusId == StatType_Health || statusId == 0)
                 {
-                    if (st.godMode && (isPlayerTarget || isMountTarget))
+                    if (ShouldBlockPlayerDamage(st.godMode, isPlayerTarget, isMountTarget))
                     {
                         delta = 0; // complete damage immunity for player & mount
                     }

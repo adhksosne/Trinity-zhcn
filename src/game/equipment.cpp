@@ -1,4 +1,5 @@
 #include "equipment.h"
+#include "equipment_logic.h"
 
 #include <Windows.h>
 #include <atomic>
@@ -299,7 +300,7 @@ namespace trinity::game
                 if (comp)
                 {
                     const int id = Inventory::IdentifyCharacterFromComp(comp);
-                    if (id < 0 || id == targetIdx) return comp;
+                    if (AcceptCharacterComponent(targetIdx, id, targetIdx)) return comp;
                 }
             }
             if (targetIdx > 0 && targetIdx < 3)
@@ -313,7 +314,7 @@ namespace trinity::game
                         if (comp)
                         {
                             const int id = Inventory::IdentifyCharacterFromComp(comp);
-                            if (id == targetIdx || (p == targetIdx && id < 0))
+                            if (AcceptCharacterComponent(targetIdx, id, p))
                                 return comp;
                         }
                     }
@@ -345,7 +346,7 @@ namespace trinity::game
                 if (comp)
                 {
                     const int id = Inventory::IdentifyCharacterFromComp(comp);
-                    if (id < 0 || id == targetIdx) return comp;
+                    if (AcceptCharacterComponent(targetIdx, id, targetIdx)) return comp;
                 }
             }
             if (targetIdx > 0 && targetIdx < 3)
@@ -359,7 +360,7 @@ namespace trinity::game
                         if (comp)
                         {
                             const int id = Inventory::IdentifyCharacterFromComp(comp);
-                            if (id == targetIdx || (p == targetIdx && id < 0))
+                            if (AcceptCharacterComponent(targetIdx, id, p))
                                 return comp;
                         }
                     }
