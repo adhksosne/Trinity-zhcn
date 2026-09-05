@@ -270,12 +270,17 @@ namespace trinity::game
 
         // A plain string field: fieldAddr -> string object -> char*. Shared by
         // every *info row's _stringKey and by stringinfo's _buffer.
+        // IsReadableAddr pre-filters unmapped pages so a moved/missing field
+        // (TU 2760 layout drift) fails cleanly instead of raising a
+        // first-chance AV inside the guarded copy loop.
         bool StringField(uintptr_t fieldAddr, char* out, size_t n)
         {
             uintptr_t strObj = 0;
             if (!ReadPtr(fieldAddr, &strObj)) return false;
+            if (!mem::IsReadableAddr(strObj)) return false;
             uintptr_t buf = 0;
             if (!ReadPtr(strObj, &buf)) return false; // *strObj = char*
+            if (!mem::IsReadableAddr(buf)) return false;
             return ReadCString(buf, out, n);
         }
 
@@ -311,7 +316,7 @@ namespace trinity::game
             uint32_t  size = 0;
             if (ReadPtr(mgr + 0x58, &data) && Read32(mgr + 0x60, &size) && data >= kMinPointer && size > 0)
             {
-                if (off < size && ReadCString(data + off, out, n) && out[0] != 0)
+                if (off < size && mem::IsReadableAddr(data + off) && ReadCString(data + off, out, n) && out[0] != 0)
                     return true;
             }
 
@@ -323,7 +328,7 @@ namespace trinity::game
                 {
                     if (ReadPtr(blob + kOff_LocBlob_Data, &data) && data >= kMinPointer)
                     {
-                        if (ReadCString(data + off, out, n) && out[0] != 0)
+                        if (mem::IsReadableAddr(data + off) && ReadCString(data + off, out, n) && out[0] != 0)
                             return true;
                     }
                 }
@@ -1823,6 +1828,10 @@ namespace trinity::game
             auto* h = static_cast<TableHunt*>(ctx);
             uintptr_t target = mem::ResolveRipAt(match, 7);
             if (h->indirect && (!ReadPtr(target, &target) || target < kMinPointer)) return false;
+            // Pre-filter unmapped pages: the pattern can match mid-instruction
+            // bytes, and every wild candidate would otherwise raise a
+            // first-chance AV inside ReadCString's guarded loop.
+            if (!mem::IsReadableAddr(target)) return false;
             char buf[64]{ 0 };
             if (!ReadCString(target, buf, sizeof(buf))) return false;
             if (_stricmp(buf, h->name) != 0) return false;

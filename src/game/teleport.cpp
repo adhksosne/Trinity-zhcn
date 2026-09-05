@@ -800,8 +800,8 @@ namespace trinity::game
             if (gimmick < kMinPointer) return std::string();
             char buf[80];
             uintptr_t p = 0;
-            if (ReadPtr(gimmick, &p) && ReadCString(p, buf, sizeof(buf))) return std::string(buf);
-            if (ReadCString(gimmick, buf, sizeof(buf))) return std::string(buf);
+            if (ReadPtr(gimmick, &p) && mem::IsReadableAddr(p) && ReadCString(p, buf, sizeof(buf))) return std::string(buf);
+            if (mem::IsReadableAddr(gimmick) && ReadCString(gimmick, buf, sizeof(buf))) return std::string(buf);
             return std::string();
         }
 
@@ -1687,6 +1687,11 @@ namespace trinity::game
         {
             TableScan* scan = static_cast<TableScan*>(ctx);
             const uintptr_t target = mem::ResolveRipAt(match, 7);
+            // The pattern can match mid-instruction bytes, so `target` may be
+            // any wild value. Pre-filter unmapped pages before the guarded
+            // string read - a first-chance AV here is caught by SEH but still
+            // trips the vectored crash logger on every bad candidate.
+            if (!mem::IsReadableAddr(target)) return false;
             char buf[40];
             if (!ReadCString(target, buf, sizeof(buf))) return false;
             if (strcmp(buf, scan->tableName) != 0) return false;

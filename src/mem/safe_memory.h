@@ -22,6 +22,27 @@ namespace trinity::mem
         return addr >= game::kMinPointer && addr <= kMaxPointer;
     }
 
+    // Page-level readability pre-check (VirtualQuery). The string-anchored
+    // table hunts resolve candidate rip-targets that may be data, floats, or
+    // packed integers - a plain range check lets those through and every bad
+    // one turns into a first-chance AV inside ReadCString's guarded loop.
+    // Each such AV is caught by our SEH, but it still trips the vectored
+    // crash logger (and any game-side exception monitor) hundreds of times
+    // per scan. Pre-filtering with VirtualQuery turns that exception storm
+    // into zero exceptions at ~1us per candidate. Use it on the hunt paths
+    // and engine-string chains, not on hot per-frame reads.
+    inline bool IsReadableAddr(uintptr_t addr)
+    {
+        if (!IsValidUserPtr(addr)) return false;
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (VirtualQuery(reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi)) == 0) return false;
+        if (mbi.State != MEM_COMMIT) return false;
+        const DWORD protect = mbi.Protect & 0xFF;
+        return protect == PAGE_READONLY || protect == PAGE_READWRITE || protect == PAGE_WRITECOPY ||
+               protect == PAGE_EXECUTE_READ || protect == PAGE_EXECUTE_READWRITE ||
+               protect == PAGE_EXECUTE_WRITECOPY;
+    }
+
     inline bool Read8(uintptr_t addr, uint8_t* out)
     {
         if (!IsValidUserPtr(addr)) return false;
@@ -150,11 +171,16 @@ namespace trinity::mem
     }
 
     // Engine refcounted string: slot -> string object -> first qword = char*.
+    // On TU 2760 some reflected-class field offsets moved, so a "string slot"
+    // can hold raw data (floats / packed u32s) whose value passes the range
+    // check but is not mapped - dereferencing it flooded the crash log with
+    // first-chance AVs. IsReadableAddr pre-filters those before the guarded
+    // byte loop ever runs.
     inline bool ReadEngineString(uintptr_t slot, char* out, size_t n)
     {
         uintptr_t obj = 0, cstr = 0;
-        if (!ReadPtr(slot, &obj) || obj < game::kMinPointer) return false;
-        if (!ReadPtr(obj, &cstr) || cstr < game::kMinPointer) return false;
+        if (!ReadPtr(slot, &obj) || !IsReadableAddr(obj)) return false;
+        if (!ReadPtr(obj, &cstr) || !IsReadableAddr(cstr)) return false;
         return ReadCString(cstr, out, n);
     }
 

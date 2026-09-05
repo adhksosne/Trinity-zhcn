@@ -134,13 +134,6 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep)
 static DWORD WINAPI MainThread(LPVOID)
 {
     trinity::Mod::Get().Initialize(g_module);
-    // Record our span once the module is fully mapped and initialized so the
-    // VEH can ignore exceptions raised by our own guarded reads.
-    HMODULE self = g_module;
-    auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(self);
-    auto* nt  = reinterpret_cast<IMAGE_NT_HEADERS*>(reinterpret_cast<uint8_t*>(self) + dos->e_lfanew);
-    g_modBase = reinterpret_cast<uintptr_t>(self);
-    g_modEnd  = g_modBase + nt->OptionalHeader.SizeOfImage;
     return 0;
 }
 
@@ -151,6 +144,18 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
     case DLL_PROCESS_ATTACH:
         g_module = module;
         DisableThreadLibraryCalls(module);
+        // Record our image span BEFORE the VEH is registered (and long before
+        // MainThread finishes initializing). The init-time table hunts raise
+        // first-chance AVs inside our own guarded reads; without the span the
+        // VEH logged them as foreign faults and even burned its one-shot
+        // minidump on them, drowning the log in Trinity.asi+0x1B7E0 noise.
+        {
+            auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(module);
+            auto* nt  = reinterpret_cast<IMAGE_NT_HEADERS*>(
+                reinterpret_cast<uint8_t*>(module) + dos->e_lfanew);
+            g_modBase = reinterpret_cast<uintptr_t>(module);
+            g_modEnd  = g_modBase + nt->OptionalHeader.SizeOfImage;
+        }
         AddVectoredExceptionHandler(0, VectoredCrashLogger); // last-chance
         SetUnhandledExceptionFilter(CrashHandler);
         // Do real work off the loader lock.
