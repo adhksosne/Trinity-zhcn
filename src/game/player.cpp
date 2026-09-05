@@ -835,61 +835,6 @@ namespace trinity::game
                                 a6, a7, a8, a9, a10, out);
         }
 
-        static bool IsPlayerHoldingEvade()
-        {
-            if ((GetAsyncKeyState(VK_SPACE) & 0x8000) != 0 ||
-                (GetAsyncKeyState(VK_LSHIFT) & 0x8000) != 0 ||
-                (GetAsyncKeyState(VK_RSHIFT) & 0x8000) != 0 ||
-                (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 ||
-                (GetAsyncKeyState('C') & 0x8000) != 0 ||
-                (GetAsyncKeyState(VK_MENU) & 0x8000) != 0) // Alt
-                return true;
-
-            XINPUT_STATE xs{};
-            for (DWORD i = 0; i < 4; ++i)
-            {
-                if (XInputGetState(i, &xs) == ERROR_SUCCESS)
-                {
-                    if ((xs.Gamepad.wButtons & (XINPUT_GAMEPAD_A | XINPUT_GAMEPAD_B)) != 0 ||
-                        xs.Gamepad.bRightTrigger > 30)
-                        return true;
-                }
-            }
-            return false;
-        }
-
-        // --- Combat Timing & Hitbox Evaluator: Perfect Parry & Perfect Dodge (sub_1407219c0) ---
-        using CombatTimingEval_t = bool(__fastcall*)(void* combatComp, void* hitData, float distance, uint8_t isGuardMode, void* outResult);
-        CombatTimingEval_t oCombatTimingEval = nullptr;
-        void* g_combatTimingTarget = nullptr;
-
-        bool __fastcall hkCombatTimingEval(void* combatComp, void* hitData, float distance, uint8_t isGuardMode, void* outResult)
-        {
-            const bool orig = oCombatTimingEval ? oCombatTimingEval(combatComp, hitData, distance, isGuardMode, outResult) : false;
-            const State& st = State::Get();
-
-            // isGuardMode != 0: Perfect Parry (Just Guard) -> ONLY when player is actively holding guard
-            if (isGuardMode && st.easyParry && IsPlayerHoldingGuard())
-            {
-                if (outResult && reinterpret_cast<uintptr_t>(outResult) >= kMinPointer)
-                {
-                    *reinterpret_cast<uint8_t*>(outResult) = 1;
-                }
-                return true;
-            }
-            // isGuardMode == 0: Perfect Dodge (Just Evade) -> ONLY when player is actively dodging
-            if (!isGuardMode && st.easyEvade && IsPlayerHoldingEvade())
-            {
-                if (outResult && reinterpret_cast<uintptr_t>(outResult) >= kMinPointer)
-                {
-                    *reinterpret_cast<uint8_t*>(outResult) = 1;
-                }
-                return true;
-            }
-
-            return orig;
-        }
-
         // --- Just Core: Just Guard (Perfect Parry) & Just Evade (Perfect Dodge) ---
         using JustCore_t = bool(__fastcall*)(__int64 a1, float* a2, float a3, char a4, bool* a5);
         JustCore_t oJustCore = nullptr;
