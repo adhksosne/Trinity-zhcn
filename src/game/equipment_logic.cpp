@@ -6,8 +6,10 @@ namespace trinity::game
                                   int partyIndex)
     {
         if (selectedIndex < 0 || selectedIndex > 2) return false;
-        if (partyIndex != selectedIndex) return false;
-        return identifiedIndex < 0 || identifiedIndex == selectedIndex ||
-               partyIndex == selectedIndex;
+        // A party-array position is only a fallback. During companion swaps
+        // it can still point at a stale component from another character.
+        if (identifiedIndex >= 0)
+            return identifiedIndex == selectedIndex;
+        return partyIndex == selectedIndex;
     }
 }

@@ -224,8 +224,10 @@ namespace
     {
         using trinity::game::AcceptCharacterComponent;
 
-        Expect(AcceptCharacterComponent(2, 1, 2),
-               "the selected Oongka party actor must not be rejected by stale gear identity");
+        Expect(!AcceptCharacterComponent(2, 1, 2),
+               "a Damiane gear identity must not be routed to the selected Oongka");
+        Expect(AcceptCharacterComponent(2, 2, 1),
+               "a matching Oongka gear identity must win over party position");
         Expect(AcceptCharacterComponent(2, -1, 2),
                "an unidentified selected party actor remains usable");
         Expect(!AcceptCharacterComponent(2, 1, 1),

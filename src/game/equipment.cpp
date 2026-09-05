@@ -252,7 +252,10 @@ namespace trinity::game
                 if (liveChar)
                 {
                     const uintptr_t comp = CompForCharacter(liveChar);
-                    if (comp) return comp;
+                    if (comp && AcceptCharacterComponent(targetIdx,
+                                                         Inventory::IdentifyCharacterFromComp(comp),
+                                                         liveIdx))
+                        return comp;
                 }
 
                 // Fallback: resolve from live inventory holder's owner
@@ -263,7 +266,10 @@ namespace trinity::game
                     if (ReadPtr(h + 8, &owner) && owner >= kMinPointer)
                     {
                         const uintptr_t comp = CompForCharacter(owner);
-                        if (comp) return comp;
+                        if (comp && AcceptCharacterComponent(targetIdx,
+                                                             Inventory::IdentifyCharacterFromComp(comp),
+                                                             liveIdx))
+                            return comp;
                     }
                 }
 
@@ -286,8 +292,22 @@ namespace trinity::game
                     if (liveActor)
                     {
                         const uintptr_t comp = CompForCharacter(liveActor);
-                        if (comp) return comp;
+                        if (comp && AcceptCharacterComponent(targetIdx,
+                                                             Inventory::IdentifyCharacterFromComp(comp),
+                                                             liveIdx))
+                            return comp;
                     }
+                }
+                // Player::GetActor slots are not guaranteed to be character
+                // indices. Recover by the component's own gear identity.
+                for (int p = 0; p < 3; ++p)
+                {
+                    const uintptr_t actor = Player::GetActor(p);
+                    const uintptr_t comp = CompForCharacter(actor);
+                    if (comp && AcceptCharacterComponent(
+                                     targetIdx,
+                                     Inventory::IdentifyCharacterFromComp(comp), p))
+                        return comp;
                 }
                 return 0; // never another character's component
             }
@@ -335,7 +355,10 @@ namespace trinity::game
                 if (serverChar)
                 {
                     const uintptr_t comp = CompForCharacter(serverChar);
-                    if (comp) return comp;
+                    if (comp && AcceptCharacterComponent(targetIdx,
+                                                         Inventory::IdentifyCharacterFromComp(comp),
+                                                         liveIdx))
+                        return comp;
                 }
             }
 
