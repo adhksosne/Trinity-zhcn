@@ -1226,6 +1226,8 @@ namespace trinity::gui
             const auto res = game::Teleport::TeleportToMarker(st.markerFallbackHeight);
             switch (res)
             {
+            case game::Teleport::MarkerStatus::Queued:
+                break;
             case game::Teleport::MarkerStatus::Success:
                 ui::Toast(LOC("Teleported to destination"));
                 break;
