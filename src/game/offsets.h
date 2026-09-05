@@ -571,6 +571,19 @@ namespace trinity::game
         "48 8B C4 48 89 58 10 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 "
         "48 8D 68 ?? 48 81 EC ?? ?? ?? ?? C5 F8 29 70 ?? 49 8B F8";
 
+    // TU 2.01.00 (PE 2760) recompile of the same function: identical ABI (a3
+    // still lands in rdi), but the prologue moved a1/a2 into shadow space
+    // directly ([rsp+8]/[rsp+10] instead of the rax chain), dropped one push
+    // and the xmm6 spill, and the frame became sub rsp,110h. Semantics
+    // verified against the binary: mov rdi,r8; later vmovsd [rdi] +
+    // vinsertps [rdi+8] assembles the float3, then vsubps against the same
+    // world-origin constant the MarkerOriginPrefix sites vote for, then the
+    // engine routes it through its destination/container update. Unique in
+    // the 2760 image (full 48 fixed bytes).
+    inline constexpr const char* kSig_DestinationUpdate_201 =
+        "48 89 5C 24 18 48 89 74 24 20 48 89 54 24 10 48 89 4C 24 08 57 41 54 "
+        "41 55 41 56 41 57 48 81 EC 10 01 00 00 41 8B F1 49 8B F8 4C 8B F2";
+
     // --- Inventory: item enumeration + quantity editing ---------------------
     // The player's inventory needs no pointer chain from the player object:
     // GetItemQuantity (IDB sub_14A1330) is called by the HUD every time it shows

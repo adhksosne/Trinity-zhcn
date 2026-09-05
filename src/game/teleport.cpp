@@ -1,4 +1,4 @@
-﻿#include "teleport.h"
+#include "teleport.h"
 
 #include <Windows.h>
 #include <TlHelp32.h>
@@ -595,25 +595,13 @@ namespace trinity::game
             const auto origins = mem::FindAllMatches(kSig_MarkerOriginPrefix, 32);
             const auto protections = mem::FindAllMatches(kSig_MarkerProtection, 2);
 
-            if (origins.size() != 9 && origins.size() != 11)
-            {
-                LOG_WARN("teleport: marker origin signature count mismatch (origins=%zu exp=9 or 11)",
-                         origins.size());
-                return false;
-            }
-
-            // v2.00.00: kSig_MarkerPattern no longer matches (the upstream 2.0
-            // adaptation dropped the pattern hooks entirely). The destination-
-            // update hook provides the marker coordinates in that case, so a
-            // pattern mismatch is a warning, not fatal - as long as the world
-            // origin resolves, the subsystem is usable.
-            if (markers.size() != kExpected_MarkerMatches)
-            {
-                LOG_WARN("teleport: marker pattern count mismatch (markers=%zu exp=%zu) - "
-                         "relying on the destination-update hook for marker coordinates.",
-                         markers.size(), kExpected_MarkerMatches);
-            }
-
+            // TU 2.01: the origin-referencing vsubps sites grew from 9/11 to
+            // ~25 (new world-coordinate consumers), so the fixed count check
+            // no longer holds. The vote itself is the validator now: the
+            // winning address must collect at least 6 votes (the pre-2.01
+            // floor) and at least twice the runner-up's count. On 2.00 all
+            // 9/11 sites voted for one address (runner-up 0), so old builds
+            // pass unchanged; on 2.01 the vote is 20 vs 5.
             std::unordered_map<uintptr_t, size_t> originVotes;
             for (const uintptr_t hit : origins)
             {
@@ -636,12 +624,33 @@ namespace trinity::game
                     origin = cand;
                 }
             }
-
-            if (origin == 0)
+            size_t runnerUpVotes = 0;
+            for (const auto& [cand, count] : originVotes)
             {
-                LOG_ERR("teleport: origin address could not be resolved from prefix matches.");
+                if (cand != origin && count > runnerUpVotes)
+                    runnerUpVotes = count;
+            }
+
+            if (maxVotes < 6 || (runnerUpVotes > 0 && maxVotes < runnerUpVotes * 2))
+            {
+                LOG_WARN("teleport: marker origin vote inconclusive (winner=%zu, runner-up=%zu, sites=%zu) - "
+                         "marker teleport disabled.",
+                         maxVotes, runnerUpVotes, origins.size());
                 return false;
             }
+
+            // v2.00.00: kSig_MarkerPattern no longer matches (the upstream 2.0
+            // adaptation dropped the pattern hooks entirely). The destination-
+            // update hook provides the marker coordinates in that case, so a
+            // pattern mismatch is a warning, not fatal - as long as the world
+            // origin resolves, the subsystem is usable.
+            if (markers.size() != kExpected_MarkerMatches)
+            {
+                LOG_WARN("teleport: marker pattern count mismatch (markers=%zu exp=%zu) - "
+                         "relying on the destination-update hook for marker coordinates.",
+                         markers.size(), kExpected_MarkerMatches);
+            }
+
             g_markerOriginAddress = origin;
 
             if (players.size() == 1)
@@ -1799,9 +1808,16 @@ namespace trinity::game
         // matches there). Installed before InitMarkerSubsystem so its degrade
         // paths can rely on this being present. Non-fatal - on 1.17/1.18 the
         // pattern capture stays the source and FindActiveMarker prefers it.
-        mem::InstallHook("teleport: destination-update", kSig_DestinationUpdate,
-                         "Teleport to Destination disabled", hkDestinationUpdate,
-                         &oDestinationUpdate, &g_destinationUpdateTarget);
+        // TU 2.01.00 (PE 2760) recompiled the function (same ABI) - try the
+        // 2.01 prologue first, then fall back to the 2.00 one.
+        if (!mem::InstallHook("teleport: destination-update (2.01)", kSig_DestinationUpdate_201,
+                              "", hkDestinationUpdate,
+                              &oDestinationUpdate, &g_destinationUpdateTarget))
+        {
+            mem::InstallHook("teleport: destination-update", kSig_DestinationUpdate,
+                             "Teleport to Destination disabled", hkDestinationUpdate,
+                             &oDestinationUpdate, &g_destinationUpdateTarget);
+        }
 
         // Map Marker Teleport subsystem (clean-room marker capture from crimsondesert-main).
         InitMarkerSubsystem();
