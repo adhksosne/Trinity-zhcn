@@ -144,17 +144,23 @@ static LONG WINAPI VectoredCrashLogger(PEXCEPTION_POINTERS ep)
         snprintf(where, sizeof(where), "rip=0x%016llX", static_cast<unsigned long long>(rip));
 
     // Throttle (zh): some faulting code paths (e.g. a bad memcpy) can fire
-    // thousands of times a second; every identical rip would otherwise grow
-    // the crash log unboundedly. Log the first occurrence, then at most one
-    // per second per rip.
+    // thousands of times a second; every rip would otherwise grow the crash
+    // log unboundedly. A single last-rip check is not enough - a storm inside
+    // memcpy alternates between a handful of instruction addresses, and each
+    // differs from the previous one, letting every exception through (this
+    // exact pattern produced a 99 MB log from one LiveTransmog fault loop).
+    // Keep a small window of recent rips instead, still 1/s per rip.
     {
-        static ULONGLONG s_lastMs = 0;
-        static uintptr_t s_lastRip = 0;
+        struct RipEntry { uintptr_t rip; ULONGLONG ms; };
+        static RipEntry s_recent[8] = {};
+        static unsigned  s_recentNext = 0;
         const ULONGLONG nowMs = GetTickCount64();
-        if (nowMs - s_lastMs < 1000 && rip == s_lastRip)
-            return EXCEPTION_CONTINUE_SEARCH;
-        s_lastMs = nowMs;
-        s_lastRip = rip;
+        for (const RipEntry& e : s_recent)
+            if (e.rip == rip && nowMs - e.ms < 1000)
+                return EXCEPTION_CONTINUE_SEARCH;
+        s_recent[s_recentNext].rip = rip;
+        s_recent[s_recentNext].ms  = nowMs;
+        s_recentNext = (s_recentNext + 1) % 8;
     }
 
     // Timestamp

@@ -978,14 +978,6 @@ namespace trinity::game
             LOG_OK("player: damage-apply hook installed @ %p", g_damageHookTarget);
         }
 
-        // Native Combat Timing Evaluator: Perfect Parry & Perfect Dodge (sub_1407219c0)
-        if (mem::InstallHook("player: combat-timing", kSig_CombatTimingEval,
-                             "Easy Parry & Easy Evade helper timing disabled",
-                             &hkCombatTimingEval, &oCombatTimingEval, &g_combatTimingTarget))
-        {
-            LOG_OK("player: combat-timing hook installed @ %p", g_combatTimingTarget);
-        }
-
         return true;
     }
 
