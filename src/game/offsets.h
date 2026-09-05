@@ -571,15 +571,17 @@ namespace trinity::game
         "48 8B C4 48 89 58 10 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 "
         "48 8D 68 ?? 48 81 EC ?? ?? ?? ?? C5 F8 29 70 ?? 49 8B F8";
 
-    // TU 2.01.00 (PE 2760) recompile of the same function: identical ABI (a3
-    // still lands in rdi), but the prologue moved a1/a2 into shadow space
-    // directly ([rsp+8]/[rsp+10] instead of the rax chain), dropped one push
-    // and the xmm6 spill, and the frame became sub rsp,110h. Semantics
-    // verified against the binary: mov rdi,r8; later vmovsd [rdi] +
-    // vinsertps [rdi+8] assembles the float3, then vsubps against the same
-    // world-origin constant the MarkerOriginPrefix sites vote for, then the
-    // engine routes it through its destination/container update. Unique in
-    // the 2760 image (full 48 fixed bytes).
+    // TU 2.01.00 (PE 2760) candidate - INVALID, DO NOT INSTALL (kept for the
+    // post-mortem). Found by semantic scan (mov rdi,r8 + float reads + origin
+    // vsubps) and unique in the image, but live-testing crashed during world
+    // load: the function consumes TWO vec3s from a3 (an AABB min/max, not a
+    // single destination float3) and reads stack args 5/6 ([rsp+0x160] /
+    // [rsp+0x168]) - a >=6-arg ABI the 4-arg DestinationUpdate_t detour
+    // cannot forward (stack-arg reads shift by the detour's call frame).
+    // It is a streaming/box-registration path called at high frequency
+    // during load. The real 2.01 destination-update is still unidentified;
+    // re-derive it from the 2.00 function's call sites, and verify the
+    // candidate reads exactly one float3 and no stack args above [rsp+0x28].
     inline constexpr const char* kSig_DestinationUpdate_201 =
         "48 89 5C 24 18 48 89 74 24 20 48 89 54 24 10 48 89 4C 24 08 57 41 54 "
         "41 55 41 56 41 57 48 81 EC 10 01 00 00 41 8B F1 49 8B F8 4C 8B F2";

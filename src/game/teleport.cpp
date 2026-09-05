@@ -1808,16 +1808,21 @@ namespace trinity::game
         // matches there). Installed before InitMarkerSubsystem so its degrade
         // paths can rely on this being present. Non-fatal - on 1.17/1.18 the
         // pattern capture stays the source and FindActiveMarker prefers it.
-        // TU 2.01.00 (PE 2760) recompiled the function (same ABI) - try the
-        // 2.01 prologue first, then fall back to the 2.00 one.
-        if (!mem::InstallHook("teleport: destination-update (2.01)", kSig_DestinationUpdate_201,
-                              "", hkDestinationUpdate,
-                              &oDestinationUpdate, &g_destinationUpdateTarget))
-        {
-            mem::InstallHook("teleport: destination-update", kSig_DestinationUpdate,
-                             "Teleport to Destination disabled", hkDestinationUpdate,
-                             &oDestinationUpdate, &g_destinationUpdateTarget);
-        }
+        //
+        // NOTE (2.01, reverted): kSig_DestinationUpdate_201 below is NOT the
+        // 2760 recompile of this function. The candidate was found by semantic
+        // scan (saves r8->rdi, reads floats, vsubps vs world origin) but live
+        // testing crashed during world load: the function actually takes TWO
+        // vec3s (an AABB min/max, not a single destination float3) and reads
+        // stack args 5/6 ([rsp+0x160]/[rsp+0x168]) - a >=6-arg ABI our 4-arg
+        // detour cannot forward safely. It is a streaming/box-registration
+        // path, called at high frequency during load. The signature stays in
+        // offsets.h for the post-mortem; it must NOT be installed until the
+        // real 4-arg destination-update is re-derived from the 2.00 call
+        // sites. Until then marker teleport degrades to disabled on 2.01.
+        mem::InstallHook("teleport: destination-update", kSig_DestinationUpdate,
+                         "Teleport to Destination disabled", hkDestinationUpdate,
+                         &oDestinationUpdate, &g_destinationUpdateTarget);
 
         // Map Marker Teleport subsystem (clean-room marker capture from crimsondesert-main).
         InitMarkerSubsystem();
