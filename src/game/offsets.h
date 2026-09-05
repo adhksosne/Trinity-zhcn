@@ -260,6 +260,42 @@ namespace trinity::game
     inline constexpr uintptr_t kOff_CharMgr_ListCount = 0xC0; // u32 count
     inline constexpr uint32_t  kCharList_MaxCount     = 8192; // sanity bound (live ~388)
 
+    // --- TU 2760 (PE 1.0.0.2760) char-manager re-derivation -----------------
+    // Live-verified 2026-09-05 with tools/frida/probe_game.py (runtime AOB
+    // scan + pointer-walk self-validation, no IDA). Every pre-2760 anchor
+    // above misses on 2760 (the call sites were recompiled), but the same
+    // manager = *(*G) shape survives at new sites and the global resolves to
+    // BSS RVA 0x6C297B8 (was 0x61830F8). The character vector moved behind a
+    // WRAPPER level - the engine's own iteration path is now:
+    //     mgr    = *(*G)                      (unchanged)
+    //     inner  = *(mgr + 0x08)              (NEW wrapper deref)
+    //     data   = *(inner + 0x58)            (was *(mgr + 0xB8))
+    //     count  = *(u32*)(inner + 0x60)      (was *(u32*)(mgr + 0xC0))
+    // Validation chain (all live): ~350 gameplay characters, exactly ONE
+    // player-class possessor round-trip (kOff_Owner_Possessor/kOff_Possessor_
+    // Pawn unchanged), and the stat chain owner+0x68 -> actor+0x20 ->
+    // marker+0x18 -> root+0x58 -> statArray[0] resolves Health (type 0) with
+    // the live HP - every downstream offset is unchanged in 2760.
+    // NOTE: mgr+0x128/+0x130 also holds the character array, but its count
+    // flickers to 0 while the engine rebuilds it - a transient copy. Use the
+    // wrapper path above; it is what the engine itself iterates.
+    // Anchors A/B are the engine's own list-walk sites; C is an API call-site
+    // family. Each verified image-wide unique (check_anchors.py: A=1 hit,
+    // B=1 hit, C=2 hits - all resolving this same global).
+    inline constexpr CharMgrAnchor kCharMgrAnchors_2760[] = {
+        // list iteration A: mov rax,cs:G; mov rcx,[rax]; mov rax,[rcx+8];
+        // mov rdi,[rax+58h]; mov eax,[rax+60h]   (RVA 0xD3B5D4)
+        {"48 8B 05 ?? ?? ?? ?? 48 8B 08 48 8B 41 08 48 8B 78 58 8B 40 60", 0},
+        // list iteration B: same shape, rbx destination   (RVA 0xD8AEFA)
+        {"48 8B 05 ?? ?? ?? ?? 48 8B 08 48 8B 41 08 48 8B 58 58 8B 40 60", 0},
+        // API family: mov rax,cs:G; mov rcx,[rax]; mov rbx,[rcx+50h]; test;
+        // jz; mov edx,4; mov r8d,10h   (RVA 0xCCC478 / 0xEDC67F)
+        {"48 8B 05 ?? ?? ?? ?? 48 8B 08 48 8B 59 50 48 85 DB 74 ?? BA 04 00 00 00 41 B8 10 00 00 00", 0},
+    };
+    inline constexpr uintptr_t kOff_CharMgr_Inner_2760     = 0x08; // mgr -> wrapper
+    inline constexpr uintptr_t kOff_CharMgr_ListData_2760  = 0x58; // wrapper -> char*[]
+    inline constexpr uintptr_t kOff_CharMgr_ListCount_2760 = 0x60; // u32
+
     // Selecting the ONE controlled body among SelfPlayer-typed characters.
     // objType==1 is unique only AT REST (live-confirmed: 388 chars, exactly one
     // type-1). During combat / body transitions the engine spawns transient

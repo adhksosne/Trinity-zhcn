@@ -17,6 +17,7 @@
 #include "../mem/safe_memory.h"
 #include "../mem/hooks.h"
 #include "../core/logger.h"
+#include "../core/version_detect.h"
 #include "../hooks/xinput_hook.h"
 #include "../core/state.h"
 
@@ -52,33 +53,40 @@ namespace trinity::game
         // stat feature below is inert (RefreshSelf no-ops).
         uintptr_t g_charMgrGlobal = 0;
 
-        // Resolve the char-manager global by consensus across kCharMgrAnchors.
-        // Each anchor is an independent call site that RIP-resolves the same
-        // global, so they act as each other's check: we take the value the most
-        // anchors agree on, and log loudly on any disagreement or on anchors
-        // that stopped matching. A single update is very unlikely to break all
-        // of them, and the vote means a lone stale survivor pointing at a
-        // sibling realm's manager (see offsets.h) cannot silently win.
+        // Resolve the char-manager global by consensus across kCharMgrAnchors
+        // (pre-2760 call sites) plus kCharMgrAnchors_2760 (TU 2760 sites - see
+        // offsets.h for the re-derivation). On any given TU only one family
+        // matches, so the vote is unaffected; pooling both keeps a single
+        // binary working across the update. Each anchor is an independent
+        // call site that RIP-resolves the same global, so they act as each
+        // other's check: we take the value the most anchors agree on, and log
+        // loudly on any disagreement or on anchors that stopped matching. A
+        // single update is very unlikely to break all of them, and the vote
+        // means a lone stale survivor pointing at a sibling realm's manager
+        // (see offsets.h) cannot silently win.
         uintptr_t ResolveCharMgrGlobal()
         {
-            constexpr int kN = static_cast<int>(std::size(kCharMgrAnchors));
-            uintptr_t vals[kN] = {};
-            int votes[kN] = {};
+            constexpr int kN  = static_cast<int>(std::size(kCharMgrAnchors));
+            constexpr int kN2 = static_cast<int>(std::size(kCharMgrAnchors_2760));
+            uintptr_t vals[kN + kN2] = {};
+            int votes[kN + kN2] = {};
             int distinct = 0, matched = 0;
 
-            for (const CharMgrAnchor& a : kCharMgrAnchors)
+            auto voteAnchor = [&](const CharMgrAnchor& a)
             {
                 const uintptr_t m = mem::FindPattern(a.sig);
-                if (!m) continue;
+                if (!m) return;
                 const uintptr_t g = mem::ResolveRipAt(m + a.movOff, 7);
-                if (!g) continue;
+                if (!g) return;
 
                 ++matched;
                 int i = 0;
                 for (; i < distinct; ++i)
                     if (vals[i] == g) { ++votes[i]; break; }
                 if (i == distinct) { vals[distinct] = g; votes[distinct] = 1; ++distinct; }
-            }
+            };
+            for (const CharMgrAnchor& a : kCharMgrAnchors) voteAnchor(a);
+            for (const CharMgrAnchor& a : kCharMgrAnchors_2760) voteAnchor(a);
 
             if (!distinct) return 0;
 
@@ -93,7 +101,7 @@ namespace trinity::game
                 LOG_WARN("player: char-manager anchors DISAGREE (%d distinct values); "
                          "using %p with %d/%d votes - re-derive the anchors.",
                          distinct, reinterpret_cast<void*>(vals[best]), votes[best], matched);
-            else if (matched < kN)
+            else if (matched > 0)
                 LOG("player: char-manager successfully resolved (%d anchors verified).", matched);
 
             return vals[best];
@@ -391,13 +399,32 @@ namespace trinity::game
             uint64_t p = 0, mgr = 0, data = 0;
             if (!Read64(g_charMgrGlobal, &p) || p < kMinPointer) return;                 // P = *slot
             if (!Read64(static_cast<uintptr_t>(p), &mgr) || mgr < kMinPointer) return;   // mgr = *P
-            if (!Read64(static_cast<uintptr_t>(mgr) + kOff_CharMgr_ListData, &data) ||
-                data < kMinPointer)
-                return;
             uint32_t count = 0;
-            if (!Read32(static_cast<uintptr_t>(mgr) + kOff_CharMgr_ListCount, &count) ||
-                count == 0 || count > kCharList_MaxCount)
-                return;
+            if (core::GetGameVersion().revision >= 2760)
+            {
+                // TU 2760: the character vector moved behind a wrapper level
+                // (see kCharMgrAnchors_2760 in offsets.h) - the engine's own
+                // iteration path is mgr -> *(mgr+8) -> data@+0x58, count@+0x60.
+                uint64_t inner = 0;
+                if (!Read64(static_cast<uintptr_t>(mgr) + kOff_CharMgr_Inner_2760, &inner) ||
+                    inner < kMinPointer)
+                    return;
+                if (!Read64(static_cast<uintptr_t>(inner) + kOff_CharMgr_ListData_2760, &data) ||
+                    data < kMinPointer)
+                    return;
+                if (!Read32(static_cast<uintptr_t>(inner) + kOff_CharMgr_ListCount_2760, &count) ||
+                    count == 0 || count > kCharList_MaxCount)
+                    return;
+            }
+            else
+            {
+                if (!Read64(static_cast<uintptr_t>(mgr) + kOff_CharMgr_ListData, &data) ||
+                    data < kMinPointer)
+                    return;
+                if (!Read32(static_cast<uintptr_t>(mgr) + kOff_CharMgr_ListCount, &count) ||
+                    count == 0 || count > kCharList_MaxCount)
+                    return;
+            }
 
             // Derive the current protagonist vtable and possessor from the SelfPlayer slot.
             uint64_t anchorVt = 0;
