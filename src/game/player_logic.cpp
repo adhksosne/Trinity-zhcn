@@ -7,4 +7,9 @@ namespace trinity::game
     {
         return godMode && (strictPlayerTarget || mountTarget);
     }
+
+    bool IsMountTypeTag(uint8_t tag)
+    {
+        return tag == 5 || tag == 6;
+    }
 }

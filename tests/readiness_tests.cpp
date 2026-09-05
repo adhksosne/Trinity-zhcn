@@ -220,7 +220,7 @@ namespace
                "God Mode blocks damage to a tracked mount");
     }
 
-    void PartyIndexWinsForSelectedEquipmentComponent()
+    void IdentifiedEquipmentWinsOverPartySlot()
     {
         using trinity::game::AcceptCharacterComponent;
 
@@ -244,6 +244,26 @@ namespace
                "gear identity remains a fallback when party order is unavailable");
         Expect(PreferPartyCharacterIndex(-1, -1) == -1,
                "unknown character identity must remain unknown");
+    }
+
+    void EquipmentLookupUsesTheOwningCharacter()
+    {
+        using trinity::game::PreferEquipmentOwner;
+
+        Expect(PreferEquipmentOwner(0x22000000, 0x33000000) == 0x22000000,
+               "equipment lookup must start from the owner that owns the equip component");
+        Expect(PreferEquipmentOwner(0, 0x33000000) == 0x33000000,
+               "the inner actor remains a fallback when no owner was captured");
+    }
+
+    void MountClassificationUsesTheTypeDescriptorTag()
+    {
+        using trinity::game::IsMountTypeTag;
+
+        Expect(IsMountTypeTag(5), "vehicle descriptor tag must identify a mount");
+        Expect(IsMountTypeTag(6), "pet descriptor tag must identify a mount candidate");
+        Expect(!IsMountTypeTag(4), "mercenary descriptor tag must not identify a mount");
+        Expect(!IsMountTypeTag(1), "player descriptor tag must not identify a mount");
     }
 
     void TrustRecordUsesTheCopiedValueField()
@@ -280,8 +300,10 @@ int main()
     AddItemRequiresAnAuthoritativeServerHolder();
     AddItemRetriesOnlyWhileAuthorityIsMissing();
     GodModeRequiresStrictPlayerTarget();
-    PartyIndexWinsForSelectedEquipmentComponent();
+    IdentifiedEquipmentWinsOverPartySlot();
     PartyContainerIdentityWinsOverStaleGearIdentity();
+    EquipmentLookupUsesTheOwningCharacter();
+    MountClassificationUsesTheTypeDescriptorTag();
     TrustRecordUsesTheCopiedValueField();
     ExecutableDebugSectionIsScanned();
     if (failures == 0)

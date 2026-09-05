@@ -12,4 +12,9 @@ namespace trinity::game
             return identifiedIndex == selectedIndex;
         return partyIndex == selectedIndex;
     }
+
+    uintptr_t PreferEquipmentOwner(uintptr_t owner, uintptr_t actor)
+    {
+        return owner ? owner : actor;
+    }
 }
