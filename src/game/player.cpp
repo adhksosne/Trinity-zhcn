@@ -20,6 +20,7 @@
 #include "../hooks/xinput_hook.h"
 #include "../core/state.h"
 #include "../core/version_detect.h"
+#include "player_logic.h"
 
 namespace trinity::game
 {
@@ -524,35 +525,46 @@ namespace trinity::game
                 }
             }
 
-            // Mount stamina discovery
-            for (uint32_t i = 0; i < count && nMountStam < kMaxMountStamEntries; ++i)
+            // Mount stamina discovery. TU 2.01 folds state bits into owner+0x48
+            // (live values are 0x10001/0x10002/...); the stable engine type is
+            // the descriptor tag at *(owner+0x88)+1. Prefer Vehicle (5) over
+            // Pet (6), so "Active Mount" resolves the ridden horse before a
+            // summoned pet that happens to appear earlier in the manager.
+            for (uint8_t wantedTag : { static_cast<uint8_t>(Obj_Vehicle),
+                                       static_cast<uint8_t>(Obj_Pet) })
             {
-                uint64_t ch = 0;
-                if (!Read64(static_cast<uintptr_t>(data) + 8ull * i, &ch) || ch < kMinPointer) continue;
-                const uintptr_t owner = static_cast<uintptr_t>(ch);
-
-                uint32_t objType = 0;
-                Read32(owner + kOff_Owner_ObjectType, &objType);
-                if (objType != Obj_Vehicle && objType != Obj_Pet) continue;
-
-                uintptr_t mountStatArray = 0, mountTarget = 0, mountAct = 0;
-                if (WalkMountVitalChain(owner, &mountStatArray, &mountTarget, &mountAct) && mountStatArray >= kMinPointer)
+                for (uint32_t i = 0; i < count && nMountStam < kMaxMountStamEntries; ++i)
                 {
-                    if (nMounts < kMaxMounts)
+                    uint64_t ch = 0;
+                    if (!Read64(static_cast<uintptr_t>(data) + 8ull * i, &ch) || ch < kMinPointer) continue;
+                    const uintptr_t owner = static_cast<uintptr_t>(ch);
+
+                    uint64_t typeDesc = 0;
+                    uint8_t typeTag = 0;
+                    if (!Read64(owner + kOff_Owner_TypeDesc, &typeDesc) || typeDesc < kMinPointer ||
+                        !Read8(static_cast<uintptr_t>(typeDesc) + 1, &typeTag) ||
+                        typeTag != wantedTag || !IsMountTypeTag(typeTag))
+                        continue;
+
+                    uintptr_t mountStatArray = 0, mountTarget = 0, mountAct = 0;
+                    if (WalkMountVitalChain(owner, &mountStatArray, &mountTarget, &mountAct) && mountStatArray >= kMinPointer)
                     {
-                        g_mountActors[nMounts].store(mountAct ? mountAct : owner, std::memory_order_release);
-                        g_mountTargetOwners[nMounts].store(mountTarget, std::memory_order_release);
-                        g_mountOwners[nMounts].store(owner, std::memory_order_release);
-                        ++nMounts;
-                    }
-                    for (int k = 0; k < kStatArray_ScanEntries; ++k)
-                    {
-                        const uintptr_t e = mountStatArray + k * kSizeof_StatEntry;
-                        int32_t stt = 0;
-                        if (!StatEntryType(e, &stt)) break;
-                        if (!PlausibleStatType(stt)) break;
-                        if (IsStaminaType(stt) && nMountStam < kMaxMountStamEntries)
-                            g_mountStamEntries[nMountStam++].store(e, std::memory_order_release);
+                        if (nMounts < kMaxMounts)
+                        {
+                            g_mountActors[nMounts].store(mountAct ? mountAct : owner, std::memory_order_release);
+                            g_mountTargetOwners[nMounts].store(mountTarget, std::memory_order_release);
+                            g_mountOwners[nMounts].store(owner, std::memory_order_release);
+                            ++nMounts;
+                        }
+                        for (int k = 0; k < kStatArray_ScanEntries; ++k)
+                        {
+                            const uintptr_t e = mountStatArray + k * kSizeof_StatEntry;
+                            int32_t stt = 0;
+                            if (!StatEntryType(e, &stt)) break;
+                            if (!PlausibleStatType(stt)) break;
+                            if (IsStaminaType(stt) && nMountStam < kMaxMountStamEntries)
+                                g_mountStamEntries[nMountStam++].store(e, std::memory_order_release);
+                        }
                     }
                 }
             }
@@ -674,6 +686,16 @@ namespace trinity::game
             return false;
         }
 
+        // targetOwner is the victim's strict battle-vital identity. Do not
+        // classify it through broad owner/actor aliases: those aliases are
+        // needed for attacker discovery and can overlap during companion
+        // swaps, which made enemies intermittently look like players.
+        bool IsStrictPlayerTarget(uintptr_t target)
+        {
+            if (target < kMinPointer) return false;
+            return InSet(g_targetOwners, kMaxPlayers, target);
+        }
+
         bool IsMountEntity(uintptr_t target)
         {
             if (target < kMinPointer) return false;
@@ -690,7 +712,7 @@ namespace trinity::game
             const State& st = State::Get();
 
             // Victim is Player (Incoming Hit)
-            if (IsPlayerEntity(targetOwner))
+            if (IsStrictPlayerTarget(targetOwner))
             {
                 if (st.godMode) return 0;
                 if (st.dmgInMult != 1.0f)
@@ -765,7 +787,7 @@ namespace trinity::game
         {
             const State& st = State::Get();
             const uintptr_t owner = reinterpret_cast<uintptr_t>(targetOwner);
-            const bool isPlayerTarget = IsPlayerEntity(owner);
+            const bool isPlayerTarget = IsStrictPlayerTarget(owner);
             const bool isMountTarget  = IsMountEntity(owner);
 
             // Determine if damage source is an active hostile enemy vs environmental/fall impact
@@ -799,7 +821,7 @@ namespace trinity::game
             {
                 if (statusId == StatType_Health || statusId == 0)
                 {
-                    if (st.godMode && (isPlayerTarget || isMountTarget))
+                    if (ShouldBlockPlayerDamage(st.godMode, isPlayerTarget, isMountTarget))
                     {
                         delta = 0; // complete damage immunity for player & mount
                     }
@@ -922,7 +944,7 @@ namespace trinity::game
         // guard on this build; do not search/hook a stale ABI.
         if (core::GetGameVersion().revision == 2760)
         {
-            LOG_OK("player: TU 2.01 continuous stat-pin guard active (all resolved characters).");
+            LOG_OK("player: TU 2.01.00 continuous stat-pin guard active (all resolved characters).");
         }
         else
         {
@@ -1088,6 +1110,12 @@ namespace trinity::game
     {
         if (index < 0 || index >= kMaxMounts) return 0;
         return g_mountActors[index].load(std::memory_order_acquire);
+    }
+
+    uintptr_t Player::GetMountOwner(int index)
+    {
+        if (index < 0 || index >= kMaxMounts) return 0;
+        return g_mountOwners[index].load(std::memory_order_acquire);
     }
 
     int Player::GetTrackedMountCount()

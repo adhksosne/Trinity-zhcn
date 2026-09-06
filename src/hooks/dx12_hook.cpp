@@ -954,6 +954,15 @@ namespace trinity::hooks
                 st.menuCloseAt = GetTickCount64(); // keep pad-eat alive briefly
         }
 
+        game::Teleport::MarkerStatus markerResult{};
+        if (game::Teleport::ConsumeMarkerResult(&markerResult))
+        {
+            if (markerResult == game::Teleport::MarkerStatus::Success)
+                ui::Toast(LOC("Teleported to destination"));
+            else
+                ui::Toast(LOC("Destination teleport failed"));
+        }
+
         // Marker Teleport hotkey (polled when menu and text captures are not
         // active). Gated behind st.markerTeleportHotkey, which defaults OFF:
         // other fast-travel mods commonly bind the same key (F10), so the bind
@@ -986,6 +995,8 @@ namespace trinity::hooks
                 const auto res = game::Teleport::TeleportToMarker(st.markerFallbackHeight);
                 switch (res)
                 {
+                case game::Teleport::MarkerStatus::Queued:
+                    break;
                 case game::Teleport::MarkerStatus::Success:
                     ui::Toast(LOC("Teleported to destination"));
                     break;

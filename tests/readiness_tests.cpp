@@ -3,6 +3,8 @@
 #include "../src/game/crime_hook_contract.h"
 #include "../src/game/inventory_hook_contract.h"
 #include "../src/game/inventory_logic.h"
+#include "../src/game/player_logic.h"
+#include "../src/game/equipment_logic.h"
 #include "../src/game/offsets.h"
 #include "../src/mem/section_filter.h"
 
@@ -190,6 +192,80 @@ namespace
                "distinct client and server holders may commit an authoritative add");
     }
 
+    void AddItemRetriesOnlyWhileAuthorityIsMissing()
+    {
+        using trinity::game::ShouldRetryAuthoritativeAdd;
+
+        Expect(ShouldRetryAuthoritativeAdd(true, true, 0x1000, 0, 0, 120),
+               "a ready add may wait for the server holder");
+        Expect(!ShouldRetryAuthoritativeAdd(true, true, 0x1000, 0, 120, 120),
+               "an authority wait must stop at the retry limit");
+        Expect(!ShouldRetryAuthoritativeAdd(true, true, 0x1000, 0x2000, 0, 120),
+               "a complete authority pair must commit instead of retrying");
+        Expect(!ShouldRetryAuthoritativeAdd(false, true, 0x1000, 0, 0, 120),
+               "an incomplete engine path must fail instead of retrying forever");
+    }
+
+    void GodModeRequiresStrictPlayerTarget()
+    {
+        using trinity::game::ShouldBlockPlayerDamage;
+
+        Expect(ShouldBlockPlayerDamage(false, true, false) == false,
+               "God Mode off must never block damage");
+        Expect(ShouldBlockPlayerDamage(true, false, false) == false,
+               "God Mode must not block damage to an unclassified enemy");
+        Expect(ShouldBlockPlayerDamage(true, true, false),
+               "God Mode blocks damage to a strict player target");
+        Expect(ShouldBlockPlayerDamage(true, false, true),
+               "God Mode blocks damage to a tracked mount");
+    }
+
+    void IdentifiedEquipmentWinsOverPartySlot()
+    {
+        using trinity::game::AcceptCharacterComponent;
+
+        Expect(!AcceptCharacterComponent(2, 1, 2),
+               "a Damiane gear identity must not be routed to the selected Oongka");
+        Expect(AcceptCharacterComponent(2, 2, 1),
+               "a matching Oongka gear identity must win over party position");
+        Expect(AcceptCharacterComponent(2, -1, 2),
+               "an unidentified selected party actor remains usable");
+        Expect(!AcceptCharacterComponent(2, 1, 1),
+               "a different party actor cannot be used for Oongka");
+    }
+
+    void PartyContainerIdentityWinsOverStaleGearIdentity()
+    {
+        using trinity::game::PreferPartyCharacterIndex;
+
+        Expect(PreferPartyCharacterIndex(2, 0) == 2,
+               "the active Oongka container must not fall back to stale Kliff gear");
+        Expect(PreferPartyCharacterIndex(-1, 1) == 1,
+               "gear identity remains a fallback when party order is unavailable");
+        Expect(PreferPartyCharacterIndex(-1, -1) == -1,
+               "unknown character identity must remain unknown");
+    }
+
+    void EquipmentLookupUsesTheOwningCharacter()
+    {
+        using trinity::game::PreferEquipmentOwner;
+
+        Expect(PreferEquipmentOwner(0x22000000, 0x33000000) == 0x22000000,
+               "equipment lookup must start from the owner that owns the equip component");
+        Expect(PreferEquipmentOwner(0, 0x33000000) == 0x33000000,
+               "the inner actor remains a fallback when no owner was captured");
+    }
+
+    void MountClassificationUsesTheTypeDescriptorTag()
+    {
+        using trinity::game::IsMountTypeTag;
+
+        Expect(IsMountTypeTag(5), "vehicle descriptor tag must identify a mount");
+        Expect(IsMountTypeTag(6), "pet descriptor tag must identify a mount candidate");
+        Expect(!IsMountTypeTag(4), "mercenary descriptor tag must not identify a mount");
+        Expect(!IsMountTypeTag(1), "player descriptor tag must not identify a mount");
+    }
+
     void TrustRecordUsesTheCopiedValueField()
     {
         Expect(trinity::game::kOff_FriendlyRec_Value == 0x20,
@@ -222,6 +298,12 @@ int main()
     TrustScalingUsesTheFirstPositiveGain();
     CachedTrustBaselineWinsOverAliasedLiveRecord();
     AddItemRequiresAnAuthoritativeServerHolder();
+    AddItemRetriesOnlyWhileAuthorityIsMissing();
+    GodModeRequiresStrictPlayerTarget();
+    IdentifiedEquipmentWinsOverPartySlot();
+    PartyContainerIdentityWinsOverStaleGearIdentity();
+    EquipmentLookupUsesTheOwningCharacter();
+    MountClassificationUsesTheTypeDescriptorTag();
     TrustRecordUsesTheCopiedValueField();
     ExecutableDebugSectionIsScanned();
     if (failures == 0)

@@ -5,6 +5,8 @@
 
 namespace trinity
 {
+    inline constexpr int kMaxInventorySlots = 1999;
+
     // Sentinel bits (outside the real XInput wButtons range) that let the two
     // analog triggers act as held "buttons" in a pad mask - used by the Free
     // Flight binds (flyUpPadMask / flyDownPadMask) and shared between the
@@ -155,7 +157,7 @@ namespace trinity
         // and turning the toggle back off restores each row's own original
         // value.
         bool invSlotSize     = false;
-        int  invSlotSizeVal  = 700; // 700 is the engine's safe limit (prevents Error 298648703)
+        int  invSlotSizeVal  = kMaxInventorySlots;
         bool invStackSize    = false;
         int  invStackSizeVal = 999999;
 
