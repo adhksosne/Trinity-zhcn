@@ -150,13 +150,7 @@ namespace trinity::game
             s_lastTrustMap[cacheKey] = newValue;
             if (newValue == incoming) return;
 
-            if (Write64(r + kOff_FriendlyRec_Value, static_cast<uint64_t>(newValue)))
-            {
-                LOG("friendly: trust %u/%u %lld -> %lld (x%.1f)",
-                    static_cast<unsigned>(group), key,
-                    static_cast<long long>(incoming), static_cast<long long>(newValue),
-                    st.trustMultVal);
-            }
+            Write64(r + kOff_FriendlyRec_Value, static_cast<uint64_t>(newValue));
         }
 
         // TU 2.01 can mutate a record returned by the lookup directly, without
@@ -197,13 +191,7 @@ namespace trinity::game
             s_lastTrustMap[cacheKey] = newValue;
             if (newValue == incoming) return;
 
-            if (Write64(r + kOff_FriendlyRec_Value, static_cast<uint64_t>(newValue)))
-            {
-                LOG("friendly: live trust %u/%u %lld -> %lld (x%.1f)",
-                    static_cast<unsigned>(group), key,
-                    static_cast<long long>(incoming), static_cast<long long>(newValue),
-                    st.trustMultVal);
-            }
+            Write64(r + kOff_FriendlyRec_Value, static_cast<uint64_t>(newValue));
         }
 
         void* __fastcall hkSetNpc(void* mapOwner, void* record)

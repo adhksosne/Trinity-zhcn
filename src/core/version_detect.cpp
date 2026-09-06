@@ -71,24 +71,24 @@ namespace trinity::core
             {
                 g_versionInfo.tu = GameTU::TU_1_18_01_Plus;
                 snprintf(g_versionInfo.displayStr, sizeof(g_versionInfo.displayStr),
-                         "Crimson Desert TU 1.18.02 (Active)");
+                         "Crimson Desert 1.18.02 (Active)");
             }
             else if (hasLegacyDyeBatch)
             {
                 g_versionInfo.tu = GameTU::TU_1_14;
                 snprintf(g_versionInfo.displayStr, sizeof(g_versionInfo.displayStr),
-                         "Crimson Desert TU 1.14 - 1.15 (Legacy Compatible)");
+                         "Crimson Desert 1.14 - 1.15 (Legacy Compatible)");
             }
             else
             {
                 // Fallback default
                 g_versionInfo.tu = GameTU::TU_1_18_01_Plus;
                 snprintf(g_versionInfo.displayStr, sizeof(g_versionInfo.displayStr),
-                         "Crimson Desert TU 1.18.02 (Active)");
+                         "Crimson Desert 1.18.02 (Active)");
             }
 
             g_versionInfo.isSupported = true;
-            LOG_OK("version: Game version detected: %s [PE: %s]", g_versionInfo.displayStr, g_versionInfo.rawVersionStr);
+            LOG_OK("Game version detected: %s [PE: %s]", g_versionInfo.displayStr, g_versionInfo.rawVersionStr);
         }
     }
 
