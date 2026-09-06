@@ -4,6 +4,10 @@ Start here when Crimson Desert updates and Trinity features stop working.
 This is an agent-facing navigation and verification guide, not a claim that
 every feature works on the next game build.
 
+For fast binary comparison, use the exact signature snapshot in section 2A.
+It duplicates the active AOBs that install features today, grouped by behaviour;
+`src/game/offsets.h` remains the single source of truth when the two differ.
+
 Source baseline inspected: 2026-09-06, commit `34d1c50` (inventory limit 1999).
 The current revision map includes PE revision 2760 -> TU 2.01.00. Every address,
 layout, signature and revision-specific branch must be revalidated for a new EXE.
@@ -67,6 +71,150 @@ For the confirmed executable path, use `Get-Item` / `.VersionInfo` and
 For example, `map_marker.h` contains literal offsets, `teleport.cpp` contains
 the current waypoint signature, and installers select revision-specific ABIs.
 Search all consumers before changing a shared definition.
+
+## 2A. Current AOB snapshot for comparison
+
+This snapshot is intentionally in the update guide so a future repair can compare
+the old and new executable without first reconstructing every symbol name. It is
+the exact baseline from `src/game/offsets.h` at commit `34d1c50`. `?` and `??`
+are existing wildcards, not bytes to fill in. The full comments beside each entry
+in `offsets.h` explain the ABI and discovery evidence; read them before changing
+the pattern.
+
+### Player, damage and controlled body
+
+```text
+kSig_StatCommit        = 48 89 5C 24 10 55 56 57 48 83 EC 20 48 8B 59 18 41 0F B7 E9 48 03 59 20 48 89 D6 48 89 CF 4C 39 C3
+kSig_DamageApply       = 48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 70 49 8B C1 49 8B E8 0F B7 DA 48 8B F1 4D 85 C9
+kSig_DamageApply_Alt   = 48 89 5C 24 ?? 48 89 6C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 49 8B C1 49 8B E8 0F B7 DA 48 8B F1 4D 85 C9
+kSig_CombatTimingEval  = 48 8B C4 41 55 41 56 41 57 48 83 EC 70 C5 78 29 40 A8
+kSig_JustCore          = 48 8B C4 55 41 56 48 81 EC ?? ?? ?? ?? C5 FC 10 89
+kSig_JustCore_Alt      = 48 8B C4 55 41 56 48 81 EC ?? ?? ?? ?? 44 0F 29
+```
+
+`kCharMgrAnchors` must resolve by consensus, not by taking the first match:
+
+```text
+anchor[0], mov +0x0C = 4D 8B 00 49 C1 E8 20 48 8D 54 24 78 48 8B 0D ?? ?? ?? ?? 48 8B 09 E8
+anchor[1], mov +0x00 = 48 8B 05 ?? ?? ?? ?? 48 8B 08 4D 8B 00 49 C1 E8 20
+anchor[2], mov +0x00 = 48 8B 05 ?? ?? ?? ?? 44 8B 82 90 00 00 00 48 8D 54 24 ?? 48 8B 08 E8
+anchor[3], mov +0x00 = 48 8B 05 ?? ?? ?? ?? 44 8B 81 58 01 00 00 48 8D 55 ?? 48 8B 08 E8
+anchor[4], mov +0x00 = 48 8B 05 ?? ?? ?? ?? 44 8B 81 60 01 00 00 48 8D 55 ?? 48 8B 08 E8
+anchor[5], mov +0x00 = 48 8B 05 ?? ?? ?? ?? 44 8B 07 48 8D 54 24 ?? 48 8B 08 E8
+```
+
+Relevant current layout: manager list `+0xB8/+0xC0`; player possessor round-trip
+`owner+0xA0 -> possessor+0xD0`; type descriptor `owner+0x88`; stat array `root+0x58`.
+
+### Movement, travel and map marker capture
+
+```text
+kSig_MoveUpdate              = 48 8B C4 4C 89 48 ? 48 89 50 ? 55 41 56
+kSig_LocoStepper             = 48 8B C4 48 89 58 10 44 88 48 20 48 89 48 08 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 78 F8 FF FF 48 81 EC 50 08 00 00
+kSig_LocoStepper_Pre201      = 48 8B C4 48 89 58 10 44 88 48 20 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 68 F8 FF FF 48 81 EC 60 08 00 00
+kSig_TravelToNode            = 48 89 5C 24 18 48 89 74 24 20 89 54 24 10 48 89 4C 24 08 55 57 41 56 48 8D 6C 24 B9 48 81 EC B0 00 00 00 41 8B F0 33 DB 83 FA FF
+kSig_TravelToNode_Pre201     = 48 89 5C 24 18 89 54 24 10 48 89 4C 24 08 55 56 57 48 8D 6C 24 B9 48 81 EC B0 00 00 00 41 8B F8 33 DB 83 FA FF
+kSig_TravelToNode_Legacy     = 48 8B C4 48 89 58 18 89 50 10 48 89 48 08 57 48 81 EC 80 00 00 00
+kSig_MarkerPattern           = C5 FB 10 07 C5 FB 11 02 8B 47 08 89 42 08
+kSig_MarkerOriginPrefix      = C5 F8 5C 05
+kSig_MarkerPlayer            = 48 8B 06 C5 F8 11 88 B0 01 00 00
+kSig_MarkerProtection        = 48 8B 46 08 48 89 F1
+```
+
+Current movement layout is position `+0x90`, desired velocity `+0xC0`, velocity
+`+0xD0`, with the second teleport destination `+0x1A0`. Map waypoint reading is
+implemented separately in `map_marker.h`: `global -> +0xA8 -> destination +0x20/+0x24/+0x28`.
+
+### Inventory, items, localization and crime
+
+```text
+kSig_InvGetItemQty           = 66 89 54 24 10 53 57 48 83 EC 28 0F B7 DA
+kSig_InvGetItemQty_Legacy    = 48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 57 48 83 EC 20 49 8B E8 0F B7 DA
+kSig_InvGetHolder            = 40 53 48 83 EC 20 48 8B 41 68 48 8B D9 48 8B 48 20 0F B7 41 30
+kSig_InvSetExpandSlots       = 48 89 5C 24 ? 56 48 83 EC 20 48 8B 41 ? 48 8B F2 8B 49
+kSig_InvHolderInsert201      = 48 89 5C 24 20 4C 89 44 24 18 48 89 54 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 00 FE FF FF 48 81 EC 00 03 00 00
+kSig_InvHolderInsert         = 48 89 5C 24 ? 4C 89 44 24 ? 48 89 54 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ? ? ? ? 48 81 EC 10 03 00 00
+kSig_InvHolderInsert_Legacy  = 48 89 5C 24 ? 4C 89 44 24 ? 48 89 54 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ? ? ? ? 48 81 EC F0 02 00 00
+kSig_InvCommit               = 48 89 5C 24 18 66 44 89 4C 24 20 48 89 54 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 00 FF FF FF 48 81 EC 00 02 00 00
+kSig_InvCommit_Pre201        = 4C 89 44 24 ? 48 89 54 24 ? 48 89 4C 24 ? 55 53 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 ? 48 81 EC 48 01 00 00 4D 8B D0 48 8B D1
+kSig_InvCoreGlobal           = 48 8B 05 ? ? ? ? 48 8B 48 30 48 8B 49 50 48 89 8D E0 02 00 00 48 85 C9
+kSig_InvCoreGlobal_Pre201    = 48 89 54 24 ? 53 48 83 EC 30 48 8B DA C7 44 24 20 00 00 00 00 48 8B 05 ? ? ? ? 48 8B 50 30 48 8B 52 50 48 8B CB E8
+kSig_TrItemValueCtor         = 48 89 5C 24 18 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 70 4C 8B F2 4C 8B E1
+kSig_TrItemValueCtor_Pre201  = 48 89 5C 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 4C 8B EA 48 8B F1 48 C7 01 FF FF FF FF 0F B7 02 66 89 41 08
+kSig_InvCommitPlacement201   = 48 89 5C 24 10 48 89 6C 24 20 56 57 41 56 48 83 EC 30 41 0F B7 58 08 48 8B F1 48 8D 4C 24 50 66 89 5C 24 50 45 0F B7 F1
+kSig_InvCommitPlacement      = 48 89 5C 24 ? 4C 89 44 24 ? 55 56 57 48 83 EC 30 41 0F B7 59
+kSig_InvFreePlacements201    = 48 89 5C 24 10 57 48 83 EC 20 48 89 CB 48 83 39 00 74 ? 31 FF 39 79 08 76 ? 66 0F 1F 44 00 00 89 F8 48 69 C8 E0 00 00 00
+kSig_InvFreePlacements       = 48 89 4C 24 08 53 48 83 EC 20 48 8B D9 48 8B 09 8B 43 08 48 69 D0 D8 00 00 00 48 03 D1 E8 ? ? ? ? 90 48 8B 0B 48 8D 43 10 48 3B C8
+kSig_LocStringGet            = 8B 41 18 48 8B 0D ? ? ? ? 3B 41 60 72 08 48 8D 05 ? ? ? ? C3 48 03 41 58 C3
+kSig_LocStringGet_Alt1       = 8B 51 10 48 8B 05 ?? ?? ?? ?? 48 8B 48 08
+kSig_LocStringGet_Alt2       = 48 8B 05 ?? ?? ?? ?? 48 8B 48 08 3B 51 08
+kSig_LocStringGet_Legacy     = 8B 41 10 48 8B 05 ?? ?? ?? ?? 48 8B 48 08
+kSig_EvaluateCrimeWantedState= 48 89 5C 24 08 48 8B 41 40 45 33 D2 8B 49 48 48 8B DA 4C 6B D9 38 41 B0 07
+kSig_RegisterCrimeEvent      = 48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 D9 48 81 EC C0 00 00 00 4D 8B F0
+```
+
+The shared generic RIP references are `kSig_LeaR8Rip = 4C 8D 05 ?? ?? ?? ??` and
+`kSig_MovR8Rip = 4C 8B 05 ?? ?? ?? ??`; inspect their predicates, never hook them.
+
+### World, time and weather
+
+```text
+kSig_FrameTimerBody          = 48 8B F9 48 8B 51 60 8B 42 64 89 42 60
+kSig_FrameTimerBody_Pre201   = 48 8B F9 48 8B 41 60 C5 FA 10 40 64 C5 FA 11 40 60
+kSig_FieldTimeRealm          = BA ?? 01 00 00 48 8B 08 0F B6 04 0A 84 C0 74 0A C5 FC 10 05 ?? ?? ?? ?? EB 08 C5 FC 10 05 ?? ?? ?? ??
+kSig_FieldTimeTick           = 48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 64 24 20 55 41 56 41 57 48 8B EC 48 83 EC 70 48 8B F9 C5 F2 58 41 2C
+kSig_FieldTimeTick_Pre201    = 48 89 5C 24 ?? 48 89 74 24 ?? 48 89 7C 24 ?? 55 41 56 41 57 48 8B EC 48 83 EC 70 48 8B F9 C5 F2 58 41 2C
+kSig_TodEngineGlobal         = 83 3D ?? ?? ?? ?? FF 75 ?? 48 89 1D ?? ?? ?? ?? 48 89 3D ?? ?? ?? ?? 44 89
+kSig_WeatherRain             = 48 8B 51 ?? 4C 8B D1 48 85 D2 B9 40 00 00 00 48 8D 42 18 48 0F 44 C1 41 80 7A 31 00 4C 8B 08 4D 8D 81 6C 01 00 00
+kSig_WeatherSnow             = 48 8B 51 ?? 4C 8B D1 48 85 D2 B9 40 00 00 00 48 8D 42 18 48 0F 44 C1 41 80 7A 31 00 4C 8B 08 4D 8D 81 68 01 00 00
+kSig_WeatherDust             = 48 8B 41 ?? 41 B8 40 00 00 00 48 85 C0 41 B9 60 01 00 00 48 8D 50 18 B8 CC 01 00 00 49 0F 44 D0
+kSig_WindPack                = 48 89 5C 24 08 57 48 83 EC 20 48 8B 01 48 8B D9 48 85 C0 48 8B FA B9 40 00 00 00 4C 8D 40 18 4C 0F 44 C1
+kSig_WindPack_Pre201         = 48 89 5C 24 08 57 48 83 EC 30 48 8B 01 48 8B D9 48 85 C0 48 8B FA B9 40 00 00 00 4C 8D 40 18 4C 0F 44 C1
+kSig_EnvManager              = 48 8B 0D ?? ?? ?? ?? 48 8B 01 FF 50 40 48 8B D7 48 8B 88 E0 0E 00 00
+```
+
+### Equipment, dye and trust
+
+```text
+kSig_EquipBatch              = 48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ? ? ? ? B8 ? ? ? ? E8 ? ? ? ? 48 2B E0 4D 8B E0 4C 8B EA 4C 8B F1 4C 8B 79 08
+kSig_EquipBatch_Legacy       = 48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ? ? ? ? B8 ? ? ? ? E8 ? ? ? ? 48 2B E0 4D 8B F8 4C 8B E2 4C 8B F1 4C 8B 69 08
+kSig_DyeApplySlot            = 48 83 EC 30 41 0F B7 D9 48 8B FA 48 8B E9 48 8B 41 08 48 8D 50 08 45 33 FF
+kSig_DyeApplyBatch           = 48 89 5C 24 18 48 89 54 24 10 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 50 4D 8B E0 48 8B F2 4C 8B F1
+kSig_DyeApplyBatch_Legacy    = 48 89 5C 24 ? 48 89 54 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 ? 48 81 EC 20 01 00 00 4D 8B E0 48 8B F2
+kSig_DyeUpsert               = 48 8B 41 78 4C 8B D1 44 8B 81 80 00 00 00 49 C1 E0 04
+kSig_DyeUpsert_Legacy        = 48 8B 41 ? 4C 8B D1 44 8B 41 ? 49 C1 E0 04
+kSig_DyeVisualSet            = 48 89 5C 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 10 FF FF FF 48 81 EC F0 01 00 00 45 0F B7 F1 49 8B F0 48 8B FA
+kSig_DyeVisualClear          = 48 89 5C 24 18 44 88 4C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 81 EC 80 00 00 00 45 0F B7 F0 48 8B FA 48 8B F1
+kSig_DyeRecordRemove         = 44 8B 91 80 00 00 00 33 C0 4C 8B D9 45 85 D2 0F 84
+kSig_EquipEffectRefresh      = 48 89 5C 24 10 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 4C 8B F2 48 8B F1 80 49 22 20 4C 8D 81 00 01 00 00
+kSig_EquipEffectRefresh_Legacy = 48 89 5C 24 ? 48 89 54 24 ? 48 89 4C 24 ? 55 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 60 4C 8B F2
+kSig_FriendlySetNpc201       = 4C 8B DC 53 55 56 57 41 56 41 57 48 83 EC 68 48 8B FA 48 8B F1 0F B7 42 04
+kSig_FriendlySetPet201       = 49 89 E3 53 55 56 57 41 56 41 57 48 83 EC 68 48 89 D7 48 89 CE 0F B7 42 04 66 41 89 43 08 49 8D 4B 08 E8 ? ? ? ? 31 ED 39 6E 1C
+kSig_FriendlyGetNpc201       = 48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 42 68 48 8B F9 48 8D 4C 24 30 48 8B F2 4C 8B 40 20 41 0F B7 40 30 66 89 44 24 30 E8 ? ? ? ? 83 7F 1C 00
+kSig_FriendlyGetPet201       = 48 89 5C 24 10 48 89 74 24 18 57 48 83 EC 20 48 8B 42 68 48 8B F9 48 8D 4C 24 30 48 8B F2 4C 8B 40 20 41 0F B7 40 30 66 89 44 24 30 E8 ? ? ? ? 83 7F 3C 00
+kSig_FriendlySetNpc          = 4C 8B DC 53 55 56 57 41 56 48 83 EC 60 48 8B FA 48 8D 69 38
+kSig_FriendlySetPet          = 49 89 E3 53 55 56 57 41 56 48 83 EC 60 48 89 D7 48 8D 69 18
+```
+
+For trust sites, retain the existing hook offset `+0x12`: `kSig_FriendlyTrustSiteA`
+is `41 8B C0 EB 4E C5 FC 10 07 C5 FC 11 01 C5 FC 10 4F 20 C5 FC 11 49 20`, and
+`kSig_FriendlyTrustSiteB` is `44 89 C0 EB 4E C5 FC 10 07 C5 FC 11 01 C5 FC 10 4F 20 C5 FC 11 49 20`.
+
+### Update comparison matrix
+
+Use the matrix while comparing a new executable. Fill in actual result rather
+than relying on assumptions. A function needs its row **and** its dependency rows.
+
+| Feature group | First patterns to compare | Also validate |
+| --- | --- | --- |
+| Overlay only fails | DX12 path and loader log | Rendering, input, active ASI path; gameplay AOBs may be irrelevant |
+| All gameplay fails | readiness sentinels in `mod.cpp` | Scanner PE sections and delayed materialization |
+| Combat/player | stat commit, damage apply, manager anchors | Character identity and stat-entry types |
+| Movement/teleport | move update, loco, waypoint state | Post-original write order and live readback |
+| Add Item/inventory | holder, commit, insert, constructor | Server/client holders, TLS realm and placement ABI |
+| Time/weather | frame timer, field-time, TOD, weather | Client/server effect and disabled-state restoration |
+| Equipment/dye | equip batch, apply/upsert, refresh | Instance ID, render update and durable inventory copy |
+| Trust | current NPC/pet setter and getter pair | Record layout, pre-write baseline and actual relationship change |
 
 ## 3. Re-find functions without guessing
 
