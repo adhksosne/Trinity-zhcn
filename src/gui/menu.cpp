@@ -687,7 +687,14 @@ namespace trinity::gui
                 snprintf(label, sizeof(label), "%s - %s  (%s)",
                          LOC(si.slotName), si.itemName, LOC("no sockets"));
 
-            if (ui::SubmenuEquipItem(label, si.icon[0] ? si.icon : nullptr, "equipedit", si,
+            // Keep the engine TypeID visible while editing a character's
+            // equipment. This makes companion-specific item diagnosis and
+            // user reports reproducible instead of name-only.
+            char labelWithId[208];
+            snprintf(labelWithId, sizeof(labelWithId), "%s [TypeID %u]",
+                     label, static_cast<unsigned>(si.typeId));
+
+            if (ui::SubmenuEquipItem(labelWithId, si.icon[0] ? si.icon : nullptr, "equipedit", si,
                                      LOC("Refine this piece and edit its abyss-gear sockets.")))
             {
                 // A different piece gets a fresh picker page.
@@ -903,11 +910,21 @@ namespace trinity::gui
 
                 char desc[192];
                 const char* catName = game::Inventory::CatalogCategoryName(c);
+                char itemLabel[160];
+                snprintf(itemLabel, sizeof(itemLabel), "%s [TypeID %u]",
+                         it.name, static_cast<unsigned>(it.typeId));
+                if (it.key[0])
+                {
+                    const size_t used = strlen(itemLabel);
+                    if (used < sizeof(itemLabel))
+                        snprintf(itemLabel + used, sizeof(itemLabel) - used,
+                                 " {%s}", it.key);
+                }
                 snprintf(desc, sizeof(desc), "%s [%s]",
                          LOC("Equip to active slot - bypasses quest & class lock"),
                          catName ? LOC(catName) : "");
 
-                if (ui::OptionItem(it.name, it.icon[0] ? it.icon : nullptr, desc))
+                if (ui::OptionItem(itemLabel, it.icon[0] ? it.icon : nullptr, desc))
                 {
                     if (game::Equipment::EquipItemToSlot(s_eqTag, it.typeId))
                     {
@@ -1209,6 +1226,8 @@ namespace trinity::gui
             const auto res = game::Teleport::TeleportToMarker(st.markerFallbackHeight);
             switch (res)
             {
+            case game::Teleport::MarkerStatus::Queued:
+                break;
             case game::Teleport::MarkerStatus::Success:
                 ui::Toast(LOC("Teleported to destination"));
                 break;

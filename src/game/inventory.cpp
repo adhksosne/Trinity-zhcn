@@ -2059,7 +2059,7 @@ namespace trinity::game
         if (currentCtor && currentMatches == 1)
         {
             oItemValueCtor = reinterpret_cast<ItemValueCtor_t>(currentCtor);
-            LOG_OK("inventory: TrItemValue TU 2.01 native ctor resolved at %p",
+            LOG_OK("inventory: TrItemValue TU 2.01.00 native ctor resolved at %p",
                    reinterpret_cast<void*>(currentCtor));
         }
         else if (allowLegacyFuzzy)
@@ -2129,7 +2129,7 @@ namespace trinity::game
             // TU 2.01 removed the old five-argument setter ABI.  Apply the
             // complete bucket state every game tick instead; this updates the
             // expansion, delta, and derived-cap fields on both realms.
-            LOG_OK("inventory: TU 2.01 continuous slot-expansion guard active.");
+            LOG_OK("inventory: TU 2.01.00 continuous slot-expansion guard active.");
         }
         else if (!mem::InstallHook("inventory: slot-expansion setter", kSig_InvSetExpandSlots,
                                    "Slot Size will not apply",
@@ -2153,10 +2153,10 @@ namespace trinity::game
         // reconcile reverts them (the menu still lists/reads fine).
         if (revision == 2760)
         {
-            if (mem::InstallHook("inventory: TU 2.01 transaction commit", kSig_InvCommit,
+            if (mem::InstallHook("inventory: TU 2.01.00 transaction commit", kSig_InvCommit,
                                  "quantity edits will not persist (revert on reconcile)",
                                  &hkCommit201, &oCommit201, &g_commit201Target, 2))
-                LOG_OK("inventory: TU 2.01 transaction commit hook installed @ %p",
+                LOG_OK("inventory: TU 2.01.00 transaction commit hook installed @ %p",
                        g_commit201Target);
         }
         else
@@ -2170,7 +2170,7 @@ namespace trinity::game
         // Catches containers that only appear later (e.g. character swap).
         if (revision == 2760)
         {
-            mem::InstallHook("inventory: TU 2.01 holder-insert", kSig_InvHolderInsert201,
+            mem::InstallHook("inventory: TU 2.01.00 holder-insert", kSig_InvHolderInsert201,
                              "Add Item will be refused and server holder capture is limited",
                              &hkHolderInsert, &oHolderInsert, &g_insTarget, 2);
         }
@@ -3522,14 +3522,32 @@ namespace trinity::game
         const uintptr_t clientC = ResolveClientContainer();
         if (clientC)
         {
+            // The party-container order is a direct identity signal and is
+            // more reliable than equipped TypeIDs during a character swap or
+            // when Oongka is carrying a newly introduced item.
+            uintptr_t sub = 0, holder = 0, arr = 0;
+            uint32_t count = 0;
+            if (ReadPtr(clientC + kOff_Container_Sub, &sub) && sub >= kMinPointer &&
+                ReadPtr(sub + kOff_Sub_Holder, &holder) && holder >= kMinPointer &&
+                ReadPtr(holder + 0x18, &arr) && arr >= kMinPointer &&
+                Read32(holder + 0x20, &count) && count > 0 && count <= 64)
+            {
+                for (uint32_t i = 0; i < count && i < 3; ++i)
+                {
+                    uintptr_t partyC = 0;
+                    if (ReadPtr(arr + static_cast<uintptr_t>(i) * 8, &partyC) &&
+                        partyC == clientC)
+                        return PreferPartyCharacterIndex(static_cast<int>(i), -1);
+                }
+            }
             const int ident = IdentifyCharacterFromEquip(clientC);
-            if (ident >= 0) return ident;
+            if (ident >= 0) return PreferPartyCharacterIndex(-1, ident);
         }
         const uintptr_t liveComp = Dye::HookedClientComp();
         if (liveComp)
         {
             const int ident = IdentifyCharacterIdentity(liveComp);
-            if (ident >= 0) return ident;
+            if (ident >= 0) return PreferPartyCharacterIndex(-1, ident);
         }
         return -1;
     }
@@ -3954,7 +3972,7 @@ namespace trinity::game
 
         // Pending request queue: the UI runs on the render thread, but this path calls
         // into engine code and must run on the game thread (Tick).
-        struct AddRequest { uint16_t typeId; int64_t qty; };
+        struct AddRequest { uint16_t typeId; int64_t qty; int attempts = 0; };
         std::mutex              g_singleAddMutex;
         std::vector<AddRequest> g_singleAddQueue;
         std::atomic<int>        g_addState{0}; // mirrors Inventory::AddState
@@ -4178,8 +4196,39 @@ namespace trinity::game
             for (const auto& req : toProcess)
             {
                 const bool ok = CommitAdd(req.typeId, req.qty);
-                g_addState.store(static_cast<int>(ok ? Inventory::AddState::Added : Inventory::AddState::Failed),
-                                 std::memory_order_release);
+                if (ok)
+                {
+                    g_addState.store(static_cast<int>(Inventory::AddState::Added),
+                                     std::memory_order_release);
+                    continue;
+                }
+
+                // The common early-load failure is a missing authoritative
+                // server holder. Keep the request pending briefly so opening
+                // the inventory or the first real transaction can publish it;
+                // never retry an incomplete engine path or a real commit error.
+                const uintptr_t clientH = CurrentHolder();
+                const uintptr_t serverH = ServerHolder();
+                const bool ready = oItemValueCtor && oHolderInsert &&
+                                   (oCommitPlacement || oCommitPlacement201) &&
+                                   oFreePlacements && oNtQueryInfoThread;
+                uintptr_t def = 0;
+                const bool haveDef = DefForRow(g_itemTableGlobal, req.typeId, &def);
+                if (ShouldRetryAuthoritativeAdd(ready, haveDef, clientH, serverH,
+                                                req.attempts, 120))
+                {
+                    AddRequest retry = req;
+                    ++retry.attempts;
+                    std::lock_guard<std::mutex> lk(g_singleAddMutex);
+                    g_singleAddQueue.push_back(retry);
+                    g_addState.store(static_cast<int>(Inventory::AddState::Pending),
+                                     std::memory_order_release);
+                }
+                else
+                {
+                    g_addState.store(static_cast<int>(Inventory::AddState::Failed),
+                                     std::memory_order_release);
+                }
             }
             RunBulkAdd();
         }
