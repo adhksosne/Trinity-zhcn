@@ -1,4 +1,4 @@
-﻿#include "teleport.h"
+#include "teleport.h"
 
 #include <Windows.h>
 #include <TlHelp32.h>
@@ -607,23 +607,16 @@ namespace trinity::game
             if (destinationRefs.size() == 1)
                 g_markerDestinationGlobal = mem::ResolveRipAt(destinationRefs.front(), 7);
 
-            if (origins.size() != 9 && origins.size() != 11)
+            // mul0095 (TU 2.01-verified): the 5 pattern sites and >=6 origin
+            // sites both resolve on 2760, so this combined gate passes there.
+            // The old zh strict "origins == 9 or 11" check predates 2.01 and
+            // rejected the 26 origin sites the newer build has, killing the
+            // whole marker subsystem (TeleportToMarker -> NotReady).
+            if (markers.size() != kExpected_MarkerMatches || origins.size() < 6)
             {
-                LOG_WARN("teleport: marker origin signature count mismatch (origins=%zu exp=9 or 11)",
-                         origins.size());
+                LOG_WARN("teleport: marker signatures count mismatch (markers=%zu exp=%zu, origins=%zu)",
+                         markers.size(), kExpected_MarkerMatches, origins.size());
                 return false;
-            }
-
-            // v2.00.00: kSig_MarkerPattern no longer matches (the upstream 2.0
-            // adaptation dropped the pattern hooks entirely). The destination-
-            // update hook provides the marker coordinates in that case, so a
-            // pattern mismatch is a warning, not fatal - as long as the world
-            // origin resolves, the subsystem is usable.
-            if (markers.size() != kExpected_MarkerMatches)
-            {
-                LOG_WARN("teleport: marker pattern count mismatch (markers=%zu exp=%zu) - "
-                         "relying on the destination-update hook for marker coordinates.",
-                         markers.size(), kExpected_MarkerMatches);
             }
 
             std::unordered_map<uintptr_t, size_t> originVotes;
