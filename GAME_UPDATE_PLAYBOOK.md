@@ -216,6 +216,55 @@ than relying on assumptions. A function needs its row **and** its dependency row
 | Equipment/dye | equip batch, apply/upsert, refresh | Instance ID, render update and durable inventory copy |
 | Trust | current NPC/pet setter and getter pair | Record layout, pre-write baseline and actual relationship change |
 
+## 2B. Runtime contract cards and log triage
+
+The AOB identifies a candidate instruction sequence; these cards identify the
+*correct* target and the observable result needed before considering a feature
+repaired. Read the startup portion of `Trinity.log` before opening the menu.
+Record the exact messages and addresses for the new EXE in the repair entry.
+
+| System | Entry point and required companion | A correct runtime result | High-value failure evidence |
+| --- | --- | --- | --- |
+| Startup/readiness | `Mod::Initialize`, `GameplayCodeReady`, `WaitForReadiness` | Version line, then hook installation after code has materialized | `Gameplay-code readiness timed out after 180 seconds`; distinguish missing sentinel from scanner section exclusion |
+| Local player/combat | Character-manager consensus, stat commit, damage dispatcher | `player: char-manager successfully resolved (N anchors verified)` and the relevant live damage/stat action affects only the controlled actor | `anchors DISAGREE`; never replace consensus with a first-match pointer |
+| Waypoint teleport | Current waypoint reader, move update, marker application helper | `map marker queued` followed by a verified post-update write; player visibly arrives and stays there | `marker signatures count mismatch`, `no marker hooks`, or `write failed verification after 3 attempts`; `Queued` is not success |
+| Add Item | Authoritative holder capture, item constructor, planner, insertion, commit and TLS switch | `inventory: Added ... [server=1 client=1]`, then item is usable and persists through the relevant reload | `add-item path incomplete`, `authoritative server holder unavailable`, or a result with `server=0`; a visible mirror item is insufficient |
+| Slots/stacks/catalog | Expansion setter, item/InventoryInfo table resolver, localization getter | Catalog announces a sane row count; changed capacity allows normal pickups and purchases | `slot-expansion setter hook failed`, catalog global/table errors, or engine validation error `298648703` after a stack override |
+| Time/weather | Frame timer, field-time tick/realm, TOD global, individual weather functions | Requested clock, visible sun and weather response; disabling returns normal simulation | `field-clock signature NOT FOUND`, `TOD engine-global signature NOT FOUND`, or `ambiguous`; one working weather control proves only its own hook |
+| Equipment/dye | Equip batch, active component, apply/upsert, render leaves/effect refresh | Correct character/slot/instance updates immediately and is still present after re-equip or reload | `effect refresh faulted`, `upsert signature not found`, `visual test only`, or `realm flag unresolved`; render-only success is not persistence |
+| Trust | TU-specific NPC/pet setters and getters, baseline cache | A real positive NPC/pet action changes the authoritative relationship by the expected scaled delta | No actual delta, or a source/destination alias that makes the incoming value look unchanged; test NPC and pet separately |
+
+### Recognize the update before selecting a branch
+
+`version_detect.cpp` combines PE version and in-memory dye patterns. A file
+version can remain unchanged across Steam updates, and the code currently gives
+unknown revisions a compatible-looking fallback display. Therefore record both
+the four-part PE version and EXE SHA-256, then compare the current AOB snapshot.
+Never select `201`, `Pre201` or `Legacy` merely because a version label looks
+familiar. Verify the signature count, function ABI and the runtime contract.
+
+For the current known branch, PE revision `2760` maps to TU `2.01.00`; the
+revision policy selects movement owner `+0x2B8`, realm flag `+0x1FD`, current
+inventory commit/placement patterns and the TU 2.01 readiness profile. Older
+branches use different values such as movement owner `+0x298` and TLS `+0x1F2`.
+Those are comparison clues only for a future update, never defaults to copy.
+
+### Fast diagnosis order
+
+1. Confirm loader, correct ASI hash, DX12 overlay and the initialization log.
+2. Capture PE version/hash and scan the readiness sentinels before attempting
+   individual functions. If several disappear together, inspect scanner sections
+   and late code materialization first.
+3. Compare the first AOBs for the failing contract card, then locate the new
+   routine from its callers/data flow. Verify it is the required writer or
+   dispatcher, not a lookup helper, thunk or a visually similar sibling.
+4. Update the AOB plus every changed ABI/offset/version branch in one pass.
+   Run targeted unit coverage, Release build and CTest.
+5. Install the exact verified ASI only while the game is closed. Confirm the
+   loaded build/log, then run the action described in the contract card.
+6. Write the new evidence into the record at the end of this file. Keep unknown,
+   untested and live-failed features explicit; they are the next repair queue.
+
 ## 3. Re-find functions without guessing
 
 ### Widespread NOT FOUND
