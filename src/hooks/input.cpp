@@ -13,63 +13,63 @@ namespace trinity::input
     static HWND    g_hwnd = nullptr;
 
     // --- IME (Chinese/Japanese/Korean) support ---------------------------------
-    // Many games disable the window's IME context (ImmAssociateContext(hwnd,
-    // NULL)) so typing never pops the OS input method. That kills IME-composed
-    // characters entirely: no composition window, no candidates, and no
-    // WM_CHAR ever carries a CJK codepoint. While a menu text row is capturing
-    // we re-attach a fresh IME context (and force it open) so pinyin
-    // composition works; when capture ends we restore whatever the game had
-    // (usually disabled), so gameplay typing is unaffected.
-    static HIMC g_imeCreated  = nullptr; // context we made while typing
-    static HIMC g_imeOriginal = nullptr; // what the window had before us
+    // The game window has its IME context disassociated
+    // (ImmAssociateContext(hwnd, NULL)), so pinyin never composes and no CJK
+    // character can ever arrive. While a menu text row is capturing we attach
+    // the thread's DEFAULT IME context instead - the system-created one, which
+    // is TSF-backed. When capture ends we disassociate again, restoring the
+    // game's own IME-less state.
+    // NOTE: never ImmCreateContext() here. A private context has no TSF
+    // backing, and the TSF input host (textinputframework.dll, used by
+    // Microsoft Pinyin on Win10/11) null-crashes on the first key it sees on
+    // such a context.
     static bool g_imeAttached = false;
 
     static void ImeSetAttached(HWND hwnd, bool want)
     {
-        if (g_imeAttached == want)
-            return;
-        if (want)
+        if (!want)
         {
-            g_imeCreated  = ImmCreateContext();
-            if (!g_imeCreated)
+            if (!g_imeAttached)
                 return;
-            g_imeOriginal = ImmAssociateContext(hwnd, g_imeCreated);
-            g_imeAttached = true;
-            if (HIMC imc = ImmGetContext(hwnd))
-            {
-                // Open the input method without needing the user to toggle
-                // the language bar first.
-                ImmSetOpenStatus(imc, TRUE);
-
-                // Put the composition window mid-screen so it is actually
-                // visible over the game.
-                RECT rc{};
-                if (GetClientRect(hwnd, &rc))
-                {
-                    const POINT pt = { (rc.right - rc.left) / 2,
-                                       (rc.bottom - rc.top) / 2 };
-                    COMPOSITIONFORM cf{};
-                    cf.dwStyle        = CFS_FORCE_POSITION;
-                    cf.ptCurrentPos   = pt;
-                    ImmSetCompositionWindow(imc, &cf);
-                    CANDIDATEFORM cand{};
-                    cand.dwIndex      = 0;
-                    cand.dwStyle      = CFS_CANDIDATEPOS;
-                    cand.ptCurrentPos = pt;
-                    ImmSetCandidateWindow(imc, &cand);
-                }
-                ImmReleaseContext(hwnd, imc);
-            }
-        }
-        else
-        {
-            if (g_imeAttached)
-                ImmAssociateContext(hwnd, g_imeOriginal);
-            if (g_imeCreated)
-                ImmDestroyContext(g_imeCreated);
-            g_imeCreated  = nullptr;
-            g_imeOriginal = nullptr;
+            ImmAssociateContext(hwnd, NULL); // back to the game's IME-less state
             g_imeAttached = false;
+            return;
+        }
+
+        // (Re-)assert on every message while typing: the game may
+        // re-disassociate the context on focus or input events of its own.
+        if (HIMC cur = ImmGetContext(hwnd))
+        {
+            ImmReleaseContext(hwnd, cur);
+            return; // window already carries a context - leave it alone
+        }
+        if (!ImmAssociateContextEx(hwnd, NULL, IACE_DEFAULT))
+            return;
+        g_imeAttached = true;
+
+        if (HIMC imc = ImmGetContext(hwnd))
+        {
+            // Composition mode on, without needing the language-bar toggle.
+            ImmSetOpenStatus(imc, TRUE);
+
+            // Put the composition / candidate window mid-screen so it is
+            // actually visible over the game.
+            RECT rc{};
+            if (GetClientRect(hwnd, &rc))
+            {
+                const POINT pt = { (rc.right - rc.left) / 2,
+                                   (rc.bottom - rc.top) / 2 };
+                COMPOSITIONFORM cf{};
+                cf.dwStyle        = CFS_FORCE_POSITION;
+                cf.ptCurrentPos   = pt;
+                ImmSetCompositionWindow(imc, &cf);
+                CANDIDATEFORM cand{};
+                cand.dwIndex      = 0;
+                cand.dwStyle      = CFS_CANDIDATEPOS;
+                cand.ptCurrentPos = pt;
+                ImmSetCandidateWindow(imc, &cand);
+            }
+            ImmReleaseContext(hwnd, imc);
         }
     }
 
@@ -144,6 +144,37 @@ namespace trinity::input
                     if (wParam == '\r' || wParam == '\b' || wParam == '\t' ||
                         wParam == 'q' || wParam == 'e' || wParam == 'Q' || wParam == 'E')
                         return TRUE;
+                    break;
+
+                case WM_IME_COMPOSITION:
+                    // TSF-based IMEs (Microsoft Pinyin etc.) commit their text
+                    // via GCS_RESULTSTR instead of WM_CHAR. Read it wide and
+                    // feed ImGui directly rather than relying on the game's
+                    // wndproc to pass it through DefWindowProc.
+                    if (typing && (lParam & GCS_RESULTSTR))
+                    {
+                        if (HIMC imc = ImmGetContext(hwnd))
+                        {
+                            wchar_t wbuf[64];
+                            const LONG n = ImmGetCompositionStringW(
+                                imc, GCS_RESULTSTR, wbuf, sizeof(wbuf) - sizeof(wchar_t));
+                            ImmReleaseContext(hwnd, imc);
+                            if (n > 0)
+                                for (LONG i = 0; i + 1 < n; i += 2)
+                                    ImGui::GetIO().AddInputCharacterUTF16(wbuf[i >> 1]);
+                        }
+                        return 0;
+                    }
+                    break;
+
+                case WM_IME_CHAR:
+                    // IMM-era IMEs commit one character per WM_IME_CHAR
+                    // (wParam is the codepoint on Unicode windows).
+                    if (typing)
+                    {
+                        ImGui::GetIO().AddInputCharacter(static_cast<ImWchar>(wParam));
+                        return 0;
+                    }
                     break;
 
                 // Mouse is deliberately neither forwarded to ImGui nor blocked, so
