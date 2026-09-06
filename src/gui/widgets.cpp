@@ -1004,9 +1004,22 @@ namespace trinity::ui
             if (g_nav.back)
             {
                 g_nav.back = false;
-                const size_t len = strlen(buf);
-                if (len > 0) { buf[len - 1] = 0; changed = true; }
-                else         CapEnd(buf);
+                size_t len = strlen(buf);
+                if (len > 0)
+                {
+                    // Delete one UTF-8 CHARACTER, not one byte: step back over
+                    // any continuation bytes (10xxxxxx) so a CJK glyph is
+                    // removed whole instead of leaving half a character behind.
+                    --len;
+                    while (len > 0 && (static_cast<unsigned char>(buf[len]) & 0xC0) == 0x80)
+                        --len;
+                    buf[len] = 0;
+                    changed  = true;
+                }
+                else
+                {
+                    CapEnd(buf);
+                }
             }
 
             // Type-to-filter: feed every character the OS delivered this frame
@@ -1016,14 +1029,46 @@ namespace trinity::ui
             for (int i = 0; i < io.InputQueueCharacters.Size; ++i)
             {
                 const ImWchar c = io.InputQueueCharacters[i];
-                if (c >= 32 && c < 127) // ascii only for the filter
+                // Accept printable Unicode, not just ASCII: the game's own
+                // localised item names are UTF-8 (Chinese/Japanese/...), and
+                // SearchMatches compares byte substrings, so a CJK needle in
+                // UTF-8 matches the matching CJK name text. Encode to UTF-8.
+                if (c >= 32 && c != 0x7F)
                 {
-                    const size_t len = strlen(buf);
-                    if (len + 1 < cap)
+                    char enc[5]{};
+                    int  encLen = 0;
+                    if (c < 0x80)
                     {
-                        buf[len]     = static_cast<char>(c);
-                        buf[len + 1] = 0;
-                        changed      = true;
+                        enc[0] = static_cast<char>(c);
+                        encLen = 1;
+                    }
+                    else if (c < 0x800)
+                    {
+                        enc[0] = static_cast<char>(0xC0 | (c >> 6));
+                        enc[1] = static_cast<char>(0x80 | (c & 0x3F));
+                        encLen = 2;
+                    }
+                    else if (c < 0x10000)
+                    {
+                        enc[0] = static_cast<char>(0xE0 | (c >> 12));
+                        enc[1] = static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+                        enc[2] = static_cast<char>(0x80 | (c & 0x3F));
+                        encLen = 3;
+                    }
+                    else
+                    {
+                        enc[0] = static_cast<char>(0xF0 | (c >> 18));
+                        enc[1] = static_cast<char>(0x80 | ((c >> 12) & 0x3F));
+                        enc[2] = static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+                        enc[3] = static_cast<char>(0x80 | (c & 0x3F));
+                        encLen = 4;
+                    }
+                    const size_t len = strlen(buf);
+                    if (len + static_cast<size_t>(encLen) < cap)
+                    {
+                        memcpy(buf + len, enc, static_cast<size_t>(encLen));
+                        buf[len + encLen] = 0;
+                        changed           = true;
                     }
                 }
             }
@@ -1082,23 +1127,63 @@ namespace trinity::ui
             if (g_nav.back)
             {
                 g_nav.back = false;
-                const size_t len = strlen(buf);
-                if (len > 0) { buf[len - 1] = 0; changed = true; }
-                else         CapEnd(buf);
+                size_t len = strlen(buf);
+                if (len > 0)
+                {
+                    // Delete one UTF-8 CHARACTER, not one byte (see Search).
+                    --len;
+                    while (len > 0 && (static_cast<unsigned char>(buf[len]) & 0xC0) == 0x80)
+                        --len;
+                    buf[len] = 0;
+                    changed  = true;
+                }
+                else
+                {
+                    CapEnd(buf);
+                }
             }
 
             ImGuiIO& io = ImGui::GetIO();
             for (int n = 0; n < io.InputQueueCharacters.Size; ++n)
             {
                 const ImWchar c = io.InputQueueCharacters[n];
-                if (c >= 32 && c < 127)
+                // Accept printable Unicode and encode as UTF-8 (see Search).
+                if (c >= 32 && c != 0x7F)
                 {
-                    const size_t len = strlen(buf);
-                    if (len + 1 < cap)
+                    char enc[5]{};
+                    int  encLen = 0;
+                    if (c < 0x80)
                     {
-                        buf[len]     = static_cast<char>(c);
-                        buf[len + 1] = 0;
-                        changed      = true;
+                        enc[0] = static_cast<char>(c);
+                        encLen = 1;
+                    }
+                    else if (c < 0x800)
+                    {
+                        enc[0] = static_cast<char>(0xC0 | (c >> 6));
+                        enc[1] = static_cast<char>(0x80 | (c & 0x3F));
+                        encLen = 2;
+                    }
+                    else if (c < 0x10000)
+                    {
+                        enc[0] = static_cast<char>(0xE0 | (c >> 12));
+                        enc[1] = static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+                        enc[2] = static_cast<char>(0x80 | (c & 0x3F));
+                        encLen = 3;
+                    }
+                    else
+                    {
+                        enc[0] = static_cast<char>(0xF0 | (c >> 18));
+                        enc[1] = static_cast<char>(0x80 | ((c >> 12) & 0x3F));
+                        enc[2] = static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+                        enc[3] = static_cast<char>(0x80 | (c & 0x3F));
+                        encLen = 4;
+                    }
+                    const size_t len = strlen(buf);
+                    if (len + static_cast<size_t>(encLen) < cap)
+                    {
+                        memcpy(buf + len, enc, static_cast<size_t>(encLen));
+                        buf[len + encLen] = 0;
+                        changed           = true;
                     }
                 }
             }
@@ -1302,6 +1387,11 @@ namespace trinity::ui
         while (n > 1)
         {
             --n;
+            // Never split a UTF-8 character: if we landed on a continuation
+            // byte (10xxxxxx) back off to the start of that character.
+            while (n > 0 && (static_cast<unsigned char>(label[n]) & 0xC0) == 0x80)
+                --n;
+            if (n == 0) break;
             memcpy(probe, label, n);
             probe[n] = 0;
             if (g_fontBody->CalcTextSizeA(th, FLT_MAX, 0.0f, probe).x + dots <= availW)
