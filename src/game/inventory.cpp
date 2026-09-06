@@ -1645,8 +1645,9 @@ namespace trinity::game
             // the transaction validator rejects the transaction with eErrNoTryOverExpandInventorySlot
             // (Error 298648703 / 0x11CD047F).
             // - On vanilla: maxSlots in table is 240.
-            // Dynamically clamp value to live table maxSlots (hard ceiling 700).
-            const uint16_t safeMax = (maxSlots > 0 && maxSlots <= 700) ? maxSlots : 700;
+            // Clamp to the live table maximum and the configured feature ceiling.
+            const uint16_t safeMax = (maxSlots > 0 && maxSlots <= kMaxInventorySlots)
+                                   ? maxSlots : kMaxInventorySlots;
             if (value > safeMax)
                 value = safeMax;
 
@@ -1708,7 +1709,7 @@ namespace trinity::game
                                 Read16(bucket + kOff_InvBucket_ExpandSlots, &curExpand);
                                 defSlots = (curCap >= curExpand) ? static_cast<uint16_t>(curCap - curExpand) : 0;
                                 uint16_t targetCap = static_cast<uint16_t>(st.invSlotSizeVal);
-                                if (targetCap > 700) targetCap = 700;
+                                if (targetCap > kMaxInventorySlots) targetCap = kMaxInventorySlots;
                                 expand   = (static_cast<int>(targetCap) > defSlots)
                                            ? static_cast<uint16_t>(targetCap - defSlots) : 0;
                                 UpsertOrigExpand(bucket, type, count);
@@ -2787,7 +2788,7 @@ namespace trinity::game
                         Read16(bucket + kOff_InvBucket_ExpandSlots, &curExpand);
                         defSlots = (curCap >= curExpand) ? static_cast<uint16_t>(curCap - curExpand) : 0;
                         uint16_t targetCap = static_cast<uint16_t>(value);
-                        if (targetCap > 700) targetCap = 700;
+                        if (targetCap > kMaxInventorySlots) targetCap = kMaxInventorySlots;
                         expand   = (static_cast<int>(targetCap) > defSlots)
                                    ? static_cast<uint16_t>(targetCap - defSlots) : 0;
                     }
@@ -2862,7 +2863,7 @@ namespace trinity::game
                 s_tableMaxCaptured = true;
             }
 
-            const uint16_t targetM = enable ? ((value > 700) ? 700 : value) : 0;
+            const uint16_t targetM = enable ? ((value > kMaxInventorySlots) ? kMaxInventorySlots : value) : 0;
             bool any = false;
             for (uint32_t row = 0; row < count; ++row)
             {
@@ -2879,11 +2880,11 @@ namespace trinity::game
     bool Inventory::SetAllSlotSizes(bool enable, int value)
     {
         if (value < 1) value = 1;
-        if (value > 700) value = 700;
+        if (value > kMaxInventorySlots) value = kMaxInventorySlots;
         const uint16_t v = static_cast<uint16_t>(value);
 
         bool any = false;
-        if (SetAllTableMaxSlots(enable, v)) any = true; // Sets InventoryInfo table denominator so UI renders 700!
+        if (SetAllTableMaxSlots(enable, v)) any = true; // Update the table ceiling before applying expansions.
         if (ApplySlotCapToHolder(CurrentHolder(), enable, v)) any = true;
         if (ApplySlotCapToHolder(ServerHolder(), enable, v))  any = true;
 
@@ -3816,7 +3817,8 @@ namespace trinity::game
             {
                 if (used >= maxS)
                 {
-                    const uint16_t targetCap = (used + 64 > 700) ? 700 : static_cast<uint16_t>(used + 64);
+                    const uint16_t targetCap = (used + 64 > kMaxInventorySlots)
+                                             ? kMaxInventorySlots : static_cast<uint16_t>(used + 64);
                     ApplySlotCapToHolder(holder, true, targetCap);
                 }
             }
