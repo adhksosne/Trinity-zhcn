@@ -637,6 +637,15 @@ namespace trinity::ui
         return g_padDownAt[slot] != 0 && GetTickCount64() - g_padDownAt[slot] > ms;
     }
 
+    void ResetNavRepeat()
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            g_padDownAt[i] = 0;
+        }
+        g_nav = {};
+    }
+
     // --- Input gathering --------------------------------------------------------
     void BeginFrame()
     {
