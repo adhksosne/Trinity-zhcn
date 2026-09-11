@@ -25,6 +25,7 @@ namespace trinity::game
     bool SelectTrustBaseline(int64_t stored, bool hasStored,
                              int64_t cached, bool hasCached,
                              int64_t* outBaseline);
+
 }
 
 static_assert(std::is_same_v<trinity::game::RegisterCrimeEvent_t,
@@ -234,18 +235,6 @@ namespace
                "a different party actor cannot be used for Oongka");
     }
 
-    void PartyContainerIdentityWinsOverStaleGearIdentity()
-    {
-        using trinity::game::PreferPartyCharacterIndex;
-
-        Expect(PreferPartyCharacterIndex(2, 0) == 2,
-               "the active Oongka container must not fall back to stale Kliff gear");
-        Expect(PreferPartyCharacterIndex(-1, 1) == 1,
-               "gear identity remains a fallback when party order is unavailable");
-        Expect(PreferPartyCharacterIndex(-1, -1) == -1,
-               "unknown character identity must remain unknown");
-    }
-
     void EquipmentLookupUsesTheOwningCharacter()
     {
         using trinity::game::PreferEquipmentOwner;
@@ -264,6 +253,52 @@ namespace
         Expect(IsMountTypeTag(6), "pet descriptor tag must identify a mount candidate");
         Expect(!IsMountTypeTag(4), "mercenary descriptor tag must not identify a mount");
         Expect(!IsMountTypeTag(1), "player descriptor tag must not identify a mount");
+    }
+
+    void VehiclesDoNotConsumeTheOongkaTrackingSlot()
+    {
+        using trinity::game::IsTrackedProtagonistTypeTag;
+
+        // Live TU 2.01 order observed in the character manager:
+        // Kliff, Damiane, horse, pet, Oongka.
+        constexpr uint8_t tags[] = { 1, 4, 5, 6, 4 };
+        int selected[3] = { -1, -1, -1 };
+        int count = 0;
+        for (int i = 0; i < 5 && count < 3; ++i)
+        {
+            if (IsTrackedProtagonistTypeTag(tags[i]))
+                selected[count++] = i;
+        }
+
+        Expect(count == 3, "all three protagonists must remain trackable");
+        Expect(selected[0] == 0 && selected[1] == 1 && selected[2] == 4,
+               "horse and pet entries must not displace Oongka from the three protagonist slots");
+    }
+
+    void EquipmentDemandRefreshesCharactersWithoutStatCheats()
+    {
+        using trinity::game::ShouldRefreshTrackedCharacters;
+
+        Expect(ShouldRefreshTrackedCharacters(false, 1000, 1500),
+               "equipment demand must refresh character tracking while stat cheats are off");
+        Expect(!ShouldRefreshTrackedCharacters(false, 1501, 1500),
+               "expired equipment demand must not keep the character-manager scan running forever");
+        Expect(ShouldRefreshTrackedCharacters(true, 1501, 0),
+               "active stat features must continue refreshing characters independently");
+    }
+
+    void MissingCatalogResolverIsRetriedAfterTheInterval()
+    {
+        using trinity::game::ShouldAttemptCatalogResolve;
+
+        Expect(ShouldAttemptCatalogResolve(false, 1000, 0, 1000),
+               "a missing item table must receive an initial resolve attempt");
+        Expect(!ShouldAttemptCatalogResolve(false, 1500, 1000, 1000),
+               "catalog resolution must not rescan every rendered frame");
+        Expect(ShouldAttemptCatalogResolve(false, 2000, 1000, 1000),
+               "a missing item table must be retried after the interval");
+        Expect(!ShouldAttemptCatalogResolve(true, 2000, 1000, 1000),
+               "a resolved item table must stop further resolver scans");
     }
 
     void TrustRecordUsesTheCopiedValueField()
@@ -301,9 +336,11 @@ int main()
     AddItemRetriesOnlyWhileAuthorityIsMissing();
     GodModeRequiresStrictPlayerTarget();
     IdentifiedEquipmentWinsOverPartySlot();
-    PartyContainerIdentityWinsOverStaleGearIdentity();
     EquipmentLookupUsesTheOwningCharacter();
     MountClassificationUsesTheTypeDescriptorTag();
+    VehiclesDoNotConsumeTheOongkaTrackingSlot();
+    EquipmentDemandRefreshesCharactersWithoutStatCheats();
+    MissingCatalogResolverIsRetriedAfterTheInterval();
     TrustRecordUsesTheCopiedValueField();
     ExecutableDebugSectionIsScanned();
     if (failures == 0)

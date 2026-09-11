@@ -265,6 +265,125 @@ Those are comparison clues only for a future update, never defaults to copy.
 6. Write the new evidence into the record at the end of this file. Keep unknown,
    untested and live-failed features explicit; they are the next repair queue.
 
+## 2C. Update-critical patterns outside `offsets.h`
+
+The AOB snapshot alone is deliberately insufficient: two live maintenance
+patterns are stored at call sites, not in the central registry. Compare and
+move these into `offsets.h` if a future repair changes them, so the next snapshot
+remains complete.
+
+```text
+// src/game/teleport.cpp — direct reader for a right-click map waypoint.
+// Expected: exactly one result before its RIP target is resolved at +7.
+kSig_RightClickWaypointRef = 48 8B 05 ?? ?? ?? ?? 48 8B 98 A8 00 00 00 C4 C1 78 10 04 24
+
+// src/game/equipment.cpp — called native helper, not a detour.
+kSig_ResizeSocketVector    = 48 89 74 24 10 57 48 83 EC 20 48 83 79 60 00
+```
+
+`inventory.cpp` also carries a list of deliberately fuzzy legacy constructor
+fallbacks. Use those only when `MayUseLegacyFuzzySignaturesForRevision()` permits
+them and only after checking their candidate count and ABI. They are not proof
+that a new title update is compatible. Search for `kLegacyCtorSigs` before
+changing Add Item behavior.
+
+The map-marker subsystem includes manual inline hooks as well as MinHook detours.
+For every manual hook, preserve the expected original bytes, overwritten length,
+trampoline replay, jump-back address and `RemoveMarkerHooks()` restoration path.
+An AOB that finds the right place is still unsafe if its copied instruction
+sequence or overwrite length no longer matches the new function.
+
+## 2D. Signature acceptance record
+
+Do not replace an AOB in source until its record contains all applicable facts:
+
+```text
+Symbol / feature / exact source consumer:
+Old AOB / new AOB / wildcard reason:
+Game EXE SHA-256 / PE version / module base / section name and characteristics:
+Match count in the initialized process / each candidate RVA:
+Instruction bytes before and after the candidate / function boundary:
+RIP displacement location, instruction length and resolved target (when used):
+Win64 ABI: RCX/RDX/R8/R9, stack arguments, XMM arguments, return value:
+Original-call timing and which thread may call it:
+Relevant object layout, pointer chain and realm:
+Hook form: MinHook or manual inline; overwrite/replay/jump-back proof:
+Live action that proves this is the intended function:
+```
+
+The repository's generic `InstallHook` can warn when a signature is ambiguous
+and hook the first result. Treat that warning as a failed diagnosis for a newly
+updated signature: find why there is more than one candidate or add a semantic
+predicate/consensus check. Never accept a first match merely because the game
+does not crash immediately.
+
+## 2E. Failure containment, rollback and artifacts
+
+Trinity starts heavy work on `MainThread` after `DllMain`, installs a vectored
+crash logger, and each subsystem exposes `Remove()`. This matters during an
+update: a crash can mean a wrong target, an ABI mismatch, a stale member offset,
+or an initialization/thread-order issue. It is not automatically proof that a
+single AOB is bad.
+
+If the game crashes after installing a candidate build, preserve these files
+before retrying: `Trinity.log`, `Trinity_Crash.txt`, and, when written,
+`Trinity_Crash.dmp`, plus the EXE and installed ASI hashes. The crash report
+contains the fault module/RVA, registers, stack frames and active feature flags;
+compare them against the hook and object chain just changed. Do not publish these
+personal diagnostic files in a release package.
+
+For recovery, close the game, retain the known-good `Trinity.asi` with its
+SHA-256, and restore that exact artifact only after recording the failed build's
+hash. Verify the restored installed file hash before relaunch. Never use the
+historical `tools/deploy_master.ps1` as a generic deploy command: its hard-coded
+paths and old version markers make it unsuitable for a future repair without a
+fresh review.
+
+`Trinity.ini` can re-enable persisted feature states on launch. When isolating a
+crash or behavior regression, preserve the user's original configuration, then
+test from a known-safe copy with feature toggles disabled and `fileLogging=1`.
+The ASI loader/proxy and `Trinity.asi` must be identified separately; do not add
+a second proxy loader to a game installation that already has one.
+
+## 2F. Authority and document precedence
+
+When sources disagree, use this order:
+
+1. The exact initialized game process and a reproduced action.
+2. The current source code and its final diff.
+3. The verified build artifact and the ASI actually loaded by that process.
+4. This playbook's dated snapshot and repair record.
+5. Historical README/RE notes and absent-tool references.
+
+For example, `README_TU200_OFFSETS.md` refers to old analysis scripts that are
+not present in this checkout and may state scanner rules for an earlier build.
+Treat it as background only. The current `section_filter`, scanner behavior and
+the exact live PE section characteristics decide what may be scanned. Never copy
+an old absolute VA, `.debug` rule, TU label or offset into a new build without
+fresh evidence.
+
+## 2G. UI-to-runtime surface map
+
+The menu is the authoritative list of what a user can actually invoke. Before
+declaring a title update repaired, use these renderer groups in `src/gui/menu.cpp`
+to enumerate the current visible actions; new menu pages must be added to the
+feature ledger and relevant contract card.
+
+| Menu renderer group | Runtime systems to trace |
+| --- | --- |
+| `RenderCombatOptions`, `RenderPlayer`, `RenderMountOptions` | `Player`, `Teleport` movement hooks and shared `State` toggles |
+| `RenderTravel`, `RenderFastTravelCats`, `RenderFastTravelNodes`, `RenderSavedLocations` | Travel function/table resolvers, move update and marker status/result flow |
+| `RenderInventoryHome`, `RenderInventoryEditor`, `RenderInventoryStorage`, `RenderInventoryAdd`, `RenderInventoryAbyss` | Catalog resolver, quantities, Add Item transaction, slots/stacks, currency and equipment identity |
+| `RenderDye*` and `RenderEquip*` | Active equip component, item instance, dye apply/upsert/render leaves, sockets, gear/refine/repair/effect refresh |
+| `RenderTimePresets`, `RenderWeatherAtmosphere`, `RenderWorld` | Frame timer, field clock, TOD renderer and weather/environment hooks |
+| `RenderRestore*` | Inventory/catalog restore transactions; test each exposed bulk action separately because one successful item add does not validate all of them |
+| `RenderKeybinds`, `RenderFontSettings`, `RenderMenuUISettings`, `RenderSystem` | Input hooks, controller masks, localization, persistence, `Trinity.ini`, console/logging and overlay rendering |
+
+The current menu includes one-shot actions and conditional pages that do not map
+one-for-one to a persisted `State` boolean. A source update can leave an old
+hook healthy while a menu action now calls a changed helper, so compare each menu
+action's call chain when a report says one button alone stopped working.
+
 ## 3. Re-find functions without guessing
 
 ### Widespread NOT FOUND
@@ -337,8 +456,9 @@ same-holder operations. A useful diagnostic is `server=1 client=1`; additionally
 check that the item can be used/equipped and survives the appropriate reload.
 
 Slot size uses `kSig_InvSetExpandSlots` and expansion semantics, not an arbitrary
-table-cap write. The baseline UI limit is `kMaxInventorySlots = 1999`; read the
-current shared constant and validate the engine's actual capacity behavior.
+table-cap write. The engine-safe UI limit is hard-coded to 700 (the former
+`kMaxInventorySlots` constant was removed after the engine rejected larger caps);
+validate the engine's actual capacity behavior.
 Preserve non-stackable/unique item handling. Historical forced stack overrides
 caused server validation error `298648703`.
 

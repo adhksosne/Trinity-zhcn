@@ -13,5 +13,9 @@ namespace trinity::game
                                      uintptr_t clientHolder, uintptr_t serverHolder,
                                      int attempts, int maxAttempts);
 
-    int PreferPartyCharacterIndex(int partyIndex, int gearIdentity);
+    // Retry a missing catalog resolver at a bounded cadence. Once the table is
+    // present the static catalog is built once and no further scans are needed.
+    bool ShouldAttemptCatalogResolve(bool haveItemTableGlobal,
+                                     uint64_t nowMs, uint64_t lastAttemptMs,
+                                     uint64_t retryIntervalMs);
 }

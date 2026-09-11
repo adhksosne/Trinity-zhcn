@@ -1645,9 +1645,8 @@ namespace trinity::game
             // the transaction validator rejects the transaction with eErrNoTryOverExpandInventorySlot
             // (Error 298648703 / 0x11CD047F).
             // - On vanilla: maxSlots in table is 240.
-            // Clamp to the live table maximum and the configured feature ceiling.
-            const uint16_t safeMax = (maxSlots > 0 && maxSlots <= kMaxInventorySlots)
-                                   ? maxSlots : kMaxInventorySlots;
+            // Dynamically clamp value to live table maxSlots (hard ceiling 700).
+            const uint16_t safeMax = (maxSlots > 0 && maxSlots <= 700) ? maxSlots : 700;
             if (value > safeMax)
                 value = safeMax;
 
@@ -1709,7 +1708,7 @@ namespace trinity::game
                                 Read16(bucket + kOff_InvBucket_ExpandSlots, &curExpand);
                                 defSlots = (curCap >= curExpand) ? static_cast<uint16_t>(curCap - curExpand) : 0;
                                 uint16_t targetCap = static_cast<uint16_t>(st.invSlotSizeVal);
-                                if (targetCap > kMaxInventorySlots) targetCap = kMaxInventorySlots;
+                                if (targetCap > 700) targetCap = 700;
                                 expand   = (static_cast<int>(targetCap) > defSlots)
                                            ? static_cast<uint16_t>(targetCap - defSlots) : 0;
                                 UpsertOrigExpand(bucket, type, count);
@@ -2864,7 +2863,7 @@ namespace trinity::game
                         Read16(bucket + kOff_InvBucket_ExpandSlots, &curExpand);
                         defSlots = (curCap >= curExpand) ? static_cast<uint16_t>(curCap - curExpand) : 0;
                         uint16_t targetCap = static_cast<uint16_t>(value);
-                        if (targetCap > kMaxInventorySlots) targetCap = kMaxInventorySlots;
+                        if (targetCap > 700) targetCap = 700;
                         expand   = (static_cast<int>(targetCap) > defSlots)
                                    ? static_cast<uint16_t>(targetCap - defSlots) : 0;
                     }
@@ -2939,7 +2938,7 @@ namespace trinity::game
                 s_tableMaxCaptured = true;
             }
 
-            const uint16_t targetM = enable ? ((value > kMaxInventorySlots) ? kMaxInventorySlots : value) : 0;
+            const uint16_t targetM = enable ? ((value > 700) ? 700 : value) : 0;
             bool any = false;
             for (uint32_t row = 0; row < count; ++row)
             {
@@ -2956,11 +2955,11 @@ namespace trinity::game
     bool Inventory::SetAllSlotSizes(bool enable, int value)
     {
         if (value < 1) value = 1;
-        if (value > kMaxInventorySlots) value = kMaxInventorySlots;
+        if (value > 700) value = 700;
         const uint16_t v = static_cast<uint16_t>(value);
 
         bool any = false;
-        if (SetAllTableMaxSlots(enable, v)) any = true; // Update the table ceiling before applying expansions.
+        if (SetAllTableMaxSlots(enable, v)) any = true; // Sets InventoryInfo table denominator so UI renders 700!
         if (ApplySlotCapToHolder(CurrentHolder(), enable, v)) any = true;
         if (ApplySlotCapToHolder(ServerHolder(), enable, v))  any = true;
 
@@ -3616,32 +3615,14 @@ namespace trinity::game
         const uintptr_t clientC = ResolveClientContainer();
         if (clientC)
         {
-            // The party-container order is a direct identity signal and is
-            // more reliable than equipped TypeIDs during a character swap or
-            // when Oongka is carrying a newly introduced item.
-            uintptr_t sub = 0, holder = 0, arr = 0;
-            uint32_t count = 0;
-            if (ReadPtr(clientC + kOff_Container_Sub, &sub) && sub >= kMinPointer &&
-                ReadPtr(sub + kOff_Sub_Holder, &holder) && holder >= kMinPointer &&
-                ReadPtr(holder + 0x18, &arr) && arr >= kMinPointer &&
-                Read32(holder + 0x20, &count) && count > 0 && count <= 64)
-            {
-                for (uint32_t i = 0; i < count && i < 3; ++i)
-                {
-                    uintptr_t partyC = 0;
-                    if (ReadPtr(arr + static_cast<uintptr_t>(i) * 8, &partyC) &&
-                        partyC == clientC)
-                        return PreferPartyCharacterIndex(static_cast<int>(i), -1);
-                }
-            }
             const int ident = IdentifyCharacterFromEquip(clientC);
-            if (ident >= 0) return PreferPartyCharacterIndex(-1, ident);
+            if (ident >= 0) return ident;
         }
         const uintptr_t liveComp = Dye::HookedClientComp();
         if (liveComp)
         {
             const int ident = IdentifyCharacterIdentity(liveComp);
-            if (ident >= 0) return PreferPartyCharacterIndex(-1, ident);
+            if (ident >= 0) return ident;
         }
         return -1;
     }
@@ -3694,39 +3675,21 @@ namespace trinity::game
             if (candCount < 64) candidates[candCount++] = c;
         };
 
-        // 1. Container manager array
-        if (clientC)
-        {
-            uintptr_t sub = 0, holder = 0;
-            if (ReadPtr(clientC + kOff_Container_Sub, &sub) && sub >= kMinPointer &&
-                ReadPtr(sub + kOff_Sub_Holder, &holder) && holder >= kMinPointer)
-            {
-                uintptr_t arr = 0;
-                uint32_t count = 0;
-                if (ReadPtr(holder + 0x18, &arr) && arr >= kMinPointer &&
-                    Read32(holder + 0x20, &count) && count > 1 && count <= 64)
-                {
-                    for (uint32_t i = 0; i < count; ++i)
-                    {
-                        uintptr_t c = 0;
-                        if (ReadPtr(arr + static_cast<uintptr_t>(i) * 8, &c) && c >= kMinPointer)
-                            addCand(c);
-                    }
-                }
-            }
-        }
-
-        // 2. Commit-hook snapshot candidates
+        // 1. Commit-hook snapshot candidates
         Candidate snap[kMaxCandidates] = {};
         const int snapN = SnapshotCandidates(snap);
         for (int i = 0; i < snapN; ++i)
             addCand(snap[i].container);
 
-        // 3. Active world party actors (all protagonists, any slot)
-        for (int i = 0; i < 3; ++i)
+        // 2. Active world protagonist containers. Player tracking filters
+        // vehicle/pet entries before applying its three-character limit. The
+        // tracked owner is the inventory container; the actor is only the
+        // gameplay subobject and cannot be walked through the inventory path.
+        const int trackedCount = Player::GetTrackedPlayerCount();
+        for (int i = 0; i < trackedCount; ++i)
         {
-            const uintptr_t act = Player::GetActor(i);
-            if (act) addCand(act);
+            const uintptr_t owner = Player::GetOwner(i);
+            if (owner) addCand(owner);
         }
 
         // Accept only candidates whose equipped gear identifies as `index`
@@ -3734,28 +3697,6 @@ namespace trinity::game
         {
             if (IdentifyCharacterFromEquip(candidates[i]) == index)
                 addMatch(candidates[i]);
-        }
-
-        // Fallback: If no candidate positively identified by gear signature,
-        // use the companion's direct index in the party container manager array!
-        if (n == 0 && clientC)
-        {
-            uintptr_t sub = 0, holder = 0;
-            if (ReadPtr(clientC + kOff_Container_Sub, &sub) && sub >= kMinPointer &&
-                ReadPtr(sub + kOff_Sub_Holder, &holder) && holder >= kMinPointer)
-            {
-                uintptr_t arr = 0;
-                uint32_t count = 0;
-                if (ReadPtr(holder + 0x18, &arr) && arr >= kMinPointer &&
-                    Read32(holder + 0x20, &count) && count > static_cast<uint32_t>(index))
-                {
-                    uintptr_t directC = 0;
-                    if (ReadPtr(arr + static_cast<uintptr_t>(index) * 8, &directC) && directC >= kMinPointer)
-                    {
-                        addMatch(directC);
-                    }
-                }
-            }
         }
 
         return n;
@@ -3769,13 +3710,13 @@ namespace trinity::game
         const int n = CharacterAddrs(index, matches, 16);
         if (n > 0) return matches[0];
 
-        // Fallback: the tracked party actor for a companion. Its gear carried
-        // nothing recognizable anywhere else; companions were always resolved
-        // this way last.
+        // Fallback: the tracked party container for a companion. Its gear may
+        // carry nothing recognizable yet, so use the owner resolved by the
+        // character manager rather than the actor subobject.
         if (index > 0 && index < 3)
         {
-            const uintptr_t partyAct = Player::GetActor(index);
-            if (partyAct >= kMinPointer) return partyAct;
+            const uintptr_t partyOwner = Player::GetOwner(index);
+            if (partyOwner >= kMinPointer) return partyOwner;
         }
 
         return 0;
@@ -3921,8 +3862,7 @@ namespace trinity::game
             {
                 if (used >= maxS)
                 {
-                    const uint16_t targetCap = (used + 64 > kMaxInventorySlots)
-                                             ? kMaxInventorySlots : static_cast<uint16_t>(used + 64);
+                    const uint16_t targetCap = (used + 64 > 700) ? 700 : static_cast<uint16_t>(used + 64);
                     ApplySlotCapToHolder(holder, true, targetCap);
                 }
             }
@@ -4353,11 +4293,21 @@ namespace trinity::game
         std::vector<Group> g_catalog;
         bool g_catalogBuilt = false;
         int  g_catalogDiagState = 0;
+        uint64_t g_catalogLastResolverAttemptMs = GetTickCount64();
+        constexpr uint64_t kCatalogResolverRetryMs = 1000;
 
         void BuildCatalog()
         {
             if (g_catalogBuilt) return;
             EnsureTablesResolved();
+            const uint64_t now = GetTickCount64();
+            if (ShouldAttemptCatalogResolve(g_itemTableGlobal != 0, now,
+                                            g_catalogLastResolverAttemptMs,
+                                            kCatalogResolverRetryMs))
+            {
+                g_catalogLastResolverAttemptMs = now;
+                g_itemTableGlobal = FindTableGlobal(kStr_ItemInfoTable);
+            }
             if (!g_itemTableGlobal)
             {
                 if (g_catalogDiagState != 1)

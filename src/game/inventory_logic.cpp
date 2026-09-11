@@ -17,9 +17,13 @@ namespace trinity::game
                serverHolder == 0 && attempts >= 0 && attempts < maxAttempts;
     }
 
-    int PreferPartyCharacterIndex(int partyIndex, int gearIdentity)
+    bool ShouldAttemptCatalogResolve(bool haveItemTableGlobal,
+                                     uint64_t nowMs, uint64_t lastAttemptMs,
+                                     uint64_t retryIntervalMs)
     {
-        if (partyIndex >= 0 && partyIndex <= 2) return partyIndex;
-        return (gearIdentity >= 0 && gearIdentity <= 2) ? gearIdentity : -1;
+        if (haveItemTableGlobal) return false;
+        if (lastAttemptMs == 0) return true;
+        if (nowMs < lastAttemptMs) return true;
+        return nowMs - lastAttemptMs >= retryIntervalMs;
     }
 }

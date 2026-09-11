@@ -47,7 +47,7 @@ trustMultVal=20.000
 
 ; Inventory Overrides
 invSlotSize=0
-invSlotSizeVal=1999
+invSlotSizeVal=700
 invStackSize=0
 invStackSizeVal=999999
 
