@@ -5,6 +5,7 @@
 // VERSIONINFO resource (Trinity.rc) builds FILEVERSION/PRODUCTVERSION from them.
 #define TRINITY_VERSION_MAJOR 1
 #define TRINITY_VERSION_MINOR 3
-#define TRINITY_VERSION_PATCH 4
+#define TRINITY_VERSION_PATCH 5
+#define TRINITY_VERSION_BUILD 2
 
-#define TRINITY_VERSION "1.3.4 (Trinity-zhcn TU2.01)"
+#define TRINITY_VERSION "1.3.5.2 (Trinity-zhcn TU2.01/2.02)"

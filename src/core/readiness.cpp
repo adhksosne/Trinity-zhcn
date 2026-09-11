@@ -1,4 +1,5 @@
 #include "readiness.h"
+#include "version_mapping.h"
 
 #include <algorithm>
 
@@ -6,7 +7,7 @@ namespace trinity::core
 {
     ReadinessProfile ReadinessProfileForRevision(uint16_t revision)
     {
-        return revision == 2760
+        return UsesTu201CompatibleRevision(revision)
             ? ReadinessProfile::Tu201KnownCompatible
             : ReadinessProfile::LegacyComplete;
     }

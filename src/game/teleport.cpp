@@ -505,43 +505,13 @@ namespace trinity::game
             return true;
         }
 
-        bool InstallMarkerProtectionHook(uintptr_t target)
+        bool InstallMarkerProtectionHook(uintptr_t /*target*/)
         {
-            static const uint8_t kExpected[7] = { 0x48, 0x8B, 0x46, 0x08, 0x48, 0x89, 0xF1 };
-            InlineHook hook{ target, 7 };
-            if (memcmp(reinterpret_cast<const void*>(target), kExpected, hook.length) != 0)
-                return false;
-
-            hook.stub = AllocateNear(target, 160);
-            if (hook.stub == nullptr) return false;
-
-            const auto stubBase = reinterpret_cast<uintptr_t>(hook.stub);
-            std::vector<uint8_t> code;
-            code.push_back(0x9C);                                         // pushfq
-            AppendBytes(code, { 0x48, 0xA1 });                            // mov rax, [abs]
-            AppendVal(code, reinterpret_cast<uintptr_t>(&g_markerProtectFlag));
-            AppendBytes(code, { 0x48, 0x85, 0xC0 });                      // test rax, rax
-            const size_t jumpIfOff = code.size();
-            AppendBytes(code, { 0x74, 0x00 });                            // jz replay
-            AppendBytes(code, { 0x80, 0x3E, 0x00 });                      // cmp byte ptr [rsi], 0
-            const size_t jumpIfBusy = code.size();
-            AppendBytes(code, { 0x75, 0x00 });                            // jne replay
-            AppendBytes(code, { 0x48, 0x8B, 0x46, 0x18 });                // mov rax, [rsi+18]
-            AppendBytes(code, { 0x48, 0x89, 0x46, 0x08 });                // mov [rsi+8], rax
-            const size_t replay = code.size();
-            code[jumpIfOff + 1] = static_cast<uint8_t>(replay - (jumpIfOff + 2));
-            code[jumpIfBusy + 1] = static_cast<uint8_t>(replay - (jumpIfBusy + 2));
-            code.push_back(0x9D);                                         // popfq
-            AppendBytes(code, { 0x48, 0x8B, 0x46, 0x08 });                // original: mov rax, [rsi+8]
-            AppendBytes(code, { 0x48, 0x89, 0xF1 });                      // original: mov rcx, rsi
-            if (!AppendRel32Jump(code, stubBase, target + hook.length) ||
-                !PatchTarget(hook, code, kExpected))
-            {
-                VirtualFree(hook.stub, 0, MEM_RELEASE);
-                return false;
-            }
-            g_markerHooks.push_back(hook);
-            return true;
+            // Disabled: target at 0x14C4542E2 is an internal engine streaming/task
+            // queue ring buffer, NOT player collision. Overwriting [rsi+8] with [rsi+0x18]
+            // actively corrupts engine heap pool allocation, causing crashes in SceneObjectServer@pa (0x14040BCCC).
+            // Player fall damage protection is handled safely via Player::SetNoFallDamage.
+            return false;
         }
 
         void RemoveMarkerHooks()
@@ -2030,12 +2000,12 @@ namespace trinity::game
         return (deadline != 0 && GetTickCount64() < deadline);
     }
 
-    void Teleport::ActivateProtection(uint64_t initialDurationMs)
+    void Teleport::ActivateProtection(uint64_t /*initialDurationMs*/)
     {
-        const uint64_t now = GetTickCount64();
-        g_protectionStartTime.store(now, std::memory_order_relaxed);
-        g_markerProtectDeadline.store(now + initialDurationMs, std::memory_order_release);
-        g_markerProtectFlag.store(1, std::memory_order_release);
+        // Safe no-op: legacy hook at 0x14C4542E2 is disabled to prevent
+        // engine streaming/task queue corruption and heap pool access violations.
+        g_markerProtectFlag.store(0, std::memory_order_release);
+        g_markerProtectDeadline.store(0, std::memory_order_release);
     }
 
     Teleport::MarkerStatus Teleport::TeleportToMarker(float fallbackHeight)

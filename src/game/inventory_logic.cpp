@@ -17,6 +17,22 @@ namespace trinity::game
                serverHolder == 0 && attempts >= 0 && attempts < maxAttempts;
     }
 
+    bool IsAuthoritativeHolderCandidate(uintptr_t clientContainer,
+                                        uintptr_t clientHolder,
+                                        uintptr_t candidateContainer,
+                                        uintptr_t candidateHolder,
+                                        bool candidateIsLiveCharacter,
+                                        uint32_t clientBucketCount,
+                                        uint32_t candidateBucketCount)
+    {
+        return clientContainer != 0 && clientHolder != 0 &&
+               candidateContainer != 0 && candidateHolder != 0 &&
+               candidateContainer != clientContainer &&
+               candidateHolder != clientHolder &&
+               candidateIsLiveCharacter && clientBucketCount != 0 &&
+               candidateBucketCount == clientBucketCount;
+    }
+
     bool ShouldAttemptCatalogResolve(bool haveItemTableGlobal,
                                      uint64_t nowMs, uint64_t lastAttemptMs,
                                      uint64_t retryIntervalMs)

@@ -72,8 +72,8 @@ add_library(Trinity SHARED
     src/game/player_logic.cpp
     src/game/equipment_logic.cpp
     src/game/world.cpp
-    src/game/dye.cpp
     src/game/equipment.cpp
+    src/game/dye.cpp
     src/game/friendly.cpp
     src/game/friendly_logic.cpp
     ${EXTENDED_SOURCES}

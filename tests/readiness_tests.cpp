@@ -13,11 +13,6 @@
 #include <cstring>
 #include <type_traits>
 
-namespace trinity::core
-{
-    uintptr_t RealmFlagOffsetForRevision(uint16_t revision);
-}
-
 namespace trinity::game
 {
     int64_t ScaleTrustValue(int64_t previous, bool hasPrevious,
@@ -25,6 +20,14 @@ namespace trinity::game
     bool SelectTrustBaseline(int64_t stored, bool hasStored,
                              int64_t cached, bool hasCached,
                              int64_t* outBaseline);
+
+    bool IsAuthoritativeHolderCandidate(uintptr_t clientContainer,
+                                        uintptr_t clientHolder,
+                                        uintptr_t candidateContainer,
+                                        uintptr_t candidateHolder,
+                                        bool candidateIsLiveCharacter,
+                                        uint32_t clientBucketCount,
+                                        uint32_t candidateBucketCount);
 
 }
 
@@ -89,6 +92,8 @@ namespace
 
         Expect(std::strcmp(ModernTitleUpdateForRevision(2760), "2.01.00") == 0,
                "PE revision 2760 must identify TU 2.01.00");
+        Expect(std::strcmp(ModernTitleUpdateForRevision(2850), "2.02.00") == 0,
+               "PE revision 2850 must identify TU 2.02.00");
         Expect(std::strcmp(ModernTitleUpdateForRevision(2692), "2.00.02") == 0,
                "PE revision 2692 must identify TU 2.00.02");
         Expect(std::strcmp(ModernTitleUpdateForRevision(2658), "2.00.01") == 0,
@@ -97,6 +102,8 @@ namespace
                "PE revision 2625 must remain TU 2.00.00");
         Expect(ModernTitleUpdateForRevision(2761) == nullptr,
                "an unrecognised newer PE revision must not be labelled as a known title update");
+        Expect(ModernTitleUpdateForRevision(2851) == nullptr,
+               "a revision after TU 2.02.00 must not inherit a confirmed label without evidence");
         Expect(ModernTitleUpdateForRevision(2474) == nullptr,
                "pre-2.00 revisions must keep using binary fingerprinting");
     }
@@ -108,6 +115,8 @@ namespace
 
         Expect(ReadinessProfileForRevision(2760) == ReadinessProfile::Tu201KnownCompatible,
                "PE revision 2760 must not wait for removed TU 2.00.02 signatures");
+        Expect(ReadinessProfileForRevision(2850) == ReadinessProfile::Tu201KnownCompatible,
+               "PE revision 2850 must use the verified modern readiness probes");
         Expect(ReadinessProfileForRevision(2692) == ReadinessProfile::LegacyComplete,
                "PE revision 2692 must retain the complete TU 2.00.02 readiness profile");
     }
@@ -118,6 +127,8 @@ namespace
 
         Expect(MoveComponentOwnerOffsetForRevision(2760) == 0x2B8,
                "PE revision 2760 locomotion component must use move-owner offset 0x2B8");
+        Expect(MoveComponentOwnerOffsetForRevision(2850) == 0x2B8,
+               "PE revision 2850 locomotion component must retain the live-verified move-owner offset 0x2B8");
         Expect(MoveComponentOwnerOffsetForRevision(2692) == 0x298,
                "pre-2.01 locomotion components must retain move-owner offset 0x298");
     }
@@ -134,12 +145,28 @@ namespace
                "TU 2.00.02 must retain its legacy compatibility fallbacks");
     }
 
+    void Tu202UsesOnlyTheConfirmedModernInventoryContract()
+    {
+        using trinity::core::UsesTu201CompatibleRevision;
+
+        Expect(UsesTu201CompatibleRevision(2760),
+               "TU 2.01 must retain its modern inventory contract");
+        Expect(UsesTu201CompatibleRevision(2850),
+               "TU 2.02 must select the verified modern inventory contract");
+        Expect(!UsesTu201CompatibleRevision(2692),
+               "TU 2.00.02 must not be routed through the newer inventory ABI");
+        Expect(!UsesTu201CompatibleRevision(2851),
+               "an unverified newer revision must not inherit TU 2.02 ABI selection");
+    }
+
     void InventoryRootAnchorTracksCurrentInstructionLayout()
     {
         using trinity::core::InventoryCoreGlobalMovOffsetForRevision;
 
         Expect(InventoryCoreGlobalMovOffsetForRevision(2760) == 0,
                "TU 2.01 inventory-root signature must resolve RIP at the match start");
+        Expect(InventoryCoreGlobalMovOffsetForRevision(2850) == 0,
+               "TU 2.02 inventory-root signature must resolve RIP at the verified match start");
         Expect(InventoryCoreGlobalMovOffsetForRevision(2692) == 0x15,
                "pre-2.01 inventory-root signature must retain its legacy mov offset");
     }
@@ -150,6 +177,8 @@ namespace
 
         Expect(RealmFlagOffsetForRevision(2760) == 0x1FD,
                "TU 2.01 realm selection must use the new TLS byte at +0x1FD");
+        Expect(RealmFlagOffsetForRevision(2850) == 0x1FD,
+               "TU 2.02 realm selection must use the live-verified TLS byte at +0x1FD");
         Expect(RealmFlagOffsetForRevision(2692) == 0x1F2,
                "pre-2.01 builds must retain the legacy TLS byte at +0x1F2");
     }
@@ -205,6 +234,24 @@ namespace
                "a complete authority pair must commit instead of retrying");
         Expect(!ShouldRetryAuthoritativeAdd(false, true, 0x1000, 0, 0, 120),
                "an incomplete engine path must fail instead of retrying forever");
+    }
+
+    void AuthoritativeHolderCaptureRejectsUnsafeCandidates()
+    {
+        using trinity::game::IsAuthoritativeHolderCandidate;
+
+        Expect(!IsAuthoritativeHolderCandidate(0x1000, 0x2000, 0x1000, 0x3000,
+                                                true, 45, 45),
+               "the client container must never be reused as server authority");
+        Expect(!IsAuthoritativeHolderCandidate(0x1000, 0x2000, 0x3000, 0x4000,
+                                                false, 45, 45),
+               "an unpossessed planner copy must not become server authority");
+        Expect(!IsAuthoritativeHolderCandidate(0x1000, 0x2000, 0x3000, 0x4000,
+                                                true, 45, 46),
+               "a different bucket layout must not become server authority");
+        Expect(IsAuthoritativeHolderCandidate(0x1000, 0x2000, 0x3000, 0x4000,
+                                              true, 45, 45),
+               "a distinct live player container with matching buckets is authoritative");
     }
 
     void GodModeRequiresStrictPlayerTarget()
@@ -328,12 +375,14 @@ int main()
     CurrentUpdateUsesCompatibleReadinessProfile();
     MovementOwnerOffsetTracksCurrentLayout();
     CurrentUpdateRejectsLegacyFuzzySignatures();
+    Tu202UsesOnlyTheConfirmedModernInventoryContract();
     InventoryRootAnchorTracksCurrentInstructionLayout();
     RealmFlagOffsetTracksCurrentTlsLayout();
     TrustScalingUsesTheFirstPositiveGain();
     CachedTrustBaselineWinsOverAliasedLiveRecord();
     AddItemRequiresAnAuthoritativeServerHolder();
     AddItemRetriesOnlyWhileAuthorityIsMissing();
+    AuthoritativeHolderCaptureRejectsUnsafeCandidates();
     GodModeRequiresStrictPlayerTarget();
     IdentifiedEquipmentWinsOverPartySlot();
     EquipmentLookupUsesTheOwningCharacter();

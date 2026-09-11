@@ -389,13 +389,26 @@ namespace trinity::game
                 if (!vt || reinterpret_cast<uintptr_t>(vt) < kMinPointer)
                     return env;
 
-                auto getEntity = reinterpret_cast<uintptr_t(__fastcall*)(uintptr_t)>(vt[0x40 / 8]);
-                if (!getEntity || reinterpret_cast<uintptr_t>(getEntity) < kMinPointer)
+                // In modern TU 2.01+ and PE 2850, the entity getter is at vt[0x60 / 8]
+                // (which directly returns [envMgr + 0x68]).
+                // Direct read is completely crash-safe and avoids unnecessary virtual dispatch.
+                uintptr_t entity = 0;
+                if (!mem::ReadPtr(envMgr + 0x68, &entity) || entity < kMinPointer)
+                {
+                    auto getEntity60 = reinterpret_cast<uintptr_t(__fastcall*)(uintptr_t)>(vt[0x60 / 8]);
+                    if (getEntity60 && reinterpret_cast<uintptr_t>(getEntity60) >= kMinPointer)
+                        entity = getEntity60(envMgr);
+                    if (entity < kMinPointer)
+                    {
+                        auto getEntity40 = reinterpret_cast<uintptr_t(__fastcall*)(uintptr_t)>(vt[0x40 / 8]);
+                        if (getEntity40 && reinterpret_cast<uintptr_t>(getEntity40) >= kMinPointer)
+                            entity = getEntity40(envMgr);
+                    }
+                }
+                if (entity < kMinPointer)
                     return env;
 
-                env.entity = getEntity(envMgr);
-                if (env.entity < kMinPointer)
-                    return env;
+                env.entity = entity;
 
                 uintptr_t ws = 0;
                 if (!mem::ReadPtr(env.entity + 0xEF0, &ws) || ws < kMinPointer)
@@ -568,7 +581,9 @@ namespace trinity::game
 
         // Safe EnvManager pointer resolution for Atmosphere & Weather (Zero hooks)
         {
-            const uintptr_t envSig = mem::FindPattern(kSig_EnvManager);
+            uintptr_t envSig = mem::FindPattern(kSig_EnvManager);
+            if (!envSig)
+                envSig = mem::FindPattern(kSig_EnvManager_Legacy);
             if (envSig)
             {
                 // The `mov rcx, cs:<pEnvManager>` IS the first instruction of

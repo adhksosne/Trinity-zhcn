@@ -8,6 +8,11 @@ namespace trinity::core
     // revision, or nullptr when the build is not explicitly recognised.
     const char* ModernTitleUpdateForRevision(uint16_t revision);
 
+    // The native inventory transaction and continuous stat-pin contracts are
+    // verified only for these explicit post-2.00 revisions. Do not infer this
+    // for a newer PE revision without fresh live evidence.
+    bool UsesTu201CompatibleRevision(uint16_t revision);
+
     uintptr_t MoveComponentOwnerOffsetForRevision(uint16_t revision);
 
     // Broad legacy signatures are a compatibility fallback for older builds.
