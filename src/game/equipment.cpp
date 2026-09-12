@@ -276,17 +276,23 @@ namespace trinity::game
                 // why the hook capture must not lead (a server-realm capture
                 // carries the same gear and passes every identity check, but
                 // has no controller and no render state).
+                // The component's GEAR identity is deliberately not consulted
+                // here: liveChar is already the structurally-validated
+                // controlled character (possessor round-trip), and its equip
+                // table can vote for another protagonist when the player
+                // carries her signature gear - that misvote used to reject
+                // the live component and leave the tab "waiting for data".
                 const uintptr_t liveChar = Inventory::ClientCharacterAddr();
                 if (liveChar)
                 {
                     const uintptr_t comp = CompForCharacter(liveChar);
-                    if (comp && AcceptCharacterComponent(targetIdx,
-                                                         Inventory::IdentifyCharacterFromComp(comp),
-                                                         liveIdx))
+                    if (comp && AcceptCharacterComponent(targetIdx, -1, liveIdx))
                         return comp;
                 }
 
-                // Fallback: resolve from live inventory holder's owner
+                // Fallback: resolve from live inventory holder's owner. Same
+                // structural trust - the client holder's owner is the live
+                // character by construction; gear votes stay out of it.
                 const uintptr_t h = Inventory::ClientHolderAddr();
                 if (h)
                 {
@@ -294,9 +300,7 @@ namespace trinity::game
                     if (ReadPtr(h + 8, &owner) && owner >= kMinPointer)
                     {
                         const uintptr_t comp = CompForCharacter(owner);
-                        if (comp && AcceptCharacterComponent(targetIdx,
-                                                             Inventory::IdentifyCharacterFromComp(comp),
-                                                             liveIdx))
+                        if (comp && AcceptCharacterComponent(targetIdx, -1, liveIdx))
                             return comp;
                     }
                 }
@@ -345,10 +349,11 @@ namespace trinity::game
                 const uintptr_t serverChar = Inventory::ServerCharacterAddr();
                 if (serverChar)
                 {
+                    // Structurally validated live server container: no gear
+                    // vote (the live equip table can vote for a protagonist
+                    // whose signature gear the player is carrying).
                     const uintptr_t comp = CompForCharacter(serverChar);
-                    if (comp && AcceptCharacterComponent(targetIdx,
-                                                         Inventory::IdentifyCharacterFromComp(comp),
-                                                         liveIdx))
+                    if (comp && AcceptCharacterComponent(targetIdx, -1, liveIdx))
                         return comp;
                 }
 
@@ -2078,11 +2083,13 @@ namespace trinity::game
                 {
                     // Resolve the live character directly - ActiveClientComp()
                     // is routed by the dye MENU selection, which may be a
-                    // different character than `c`.
+                    // different character than `c`. The live character is
+                    // structurally validated (possessor round-trip), so its
+                    // equip table is used as-is: a gear vote here would reject
+                    // it whenever the player carries another protagonist's
+                    // signature gear.
                     const uintptr_t liveChar = Inventory::ClientCharacterAddr();
                     if (liveChar) comp = CompForCharacter(liveChar);
-                    if (comp && Inventory::IdentifyCharacterFromComp(comp) != c)
-                        comp = 0;
                 }
                 if (!comp)
                 {

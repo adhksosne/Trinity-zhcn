@@ -3729,13 +3729,29 @@ namespace trinity::game
         return IdentifyCharacterIdentity(comp);
     }
 
-    // Identity of the LIVE on-screen protagonist (-1 = unknown). The client
-    // container leads; when its walk fails or carries no recognizable gear,
-    // the render component captured by the equip-batch hook is scanned - the
-    // game updates that component on every dress-up, so while playing Damiane
-    // it holds her weapons even if nothing on the container side cooperates.
+    // Identity of the LIVE on-screen protagonist (-1 = unknown).
+    // Structural first: the tracked owner whose possessor round-trips is the
+    // CONTROLLED character, and its character-manager scan slot is the
+    // canonical party order (0=Kliff, 1=Damiane, 2=Oongka - cross-verified by
+    // live evidence: slot 1 votes Damiane, slot 2 votes Oongka). A gear-vote
+    // on the live container is poison when the player carries another
+    // protagonist's signature gear (Kliff holding Damiane's blade voted her
+    // identity with 2 votes to Kliff's 0), so the live container is never
+    // identified by its gear. The slot mapping is only trusted when the real
+    // char-manager scan produced >= 2 tracked protagonists; with a single
+    // tracked owner (solo play or the no-char-manager fallback, where slot 0
+    // is simply the client character) the gear vote decides.
     static int LiveCharacterIdentity()
     {
+        const int trackedCount = Player::GetTrackedPlayerCount();
+        if (trackedCount >= 2)
+        {
+            for (int i = 0; i < trackedCount; ++i)
+            {
+                const uintptr_t own = Player::GetOwner(i);
+                if (own && IsLiveCharacter(own)) return i;
+            }
+        }
         const uintptr_t clientC = ResolveClientContainer();
         if (clientC)
         {
@@ -3855,13 +3871,14 @@ namespace trinity::game
         // Accept candidates whose equipped gear identifies as `index`. The
         // signature test is a full-container plurality (IdentifyCharacterFromEquip),
         // so a stray item for another protagonist does not redirect the match.
-        // The tracked-owner slot order is NOT trustable as a fixed character id
-        // here: it is the in-world scan order, so an off-field protagonist
-        // (e.g. Damiane when she cannot be controlled) is simply absent, and
-        // slot->character mapping would break. Only the gear plurality plus the
-        // live-client check above bind a container to a protagonist.
+        // A candidate whose possessor round-trips belongs to the CONTROLLED
+        // character (live): it may only match the live index, never another
+        // tab - even when its mixed-in gear votes for them (Kliff holding
+        // Damiane's signature gear voted her identity and handed his server
+        // container to her tab).
         for (int i = 0; i < candCount; ++i)
         {
+            if (index != liveIdent && IsLiveCharacter(candidates[i])) continue;
             if (IdentifyCharacterFromEquip(candidates[i]) == index)
                 addMatch(candidates[i]);
         }
@@ -3877,16 +3894,16 @@ namespace trinity::game
         const int n = CharacterAddrs(index, matches, 16);
         if (n > 0) return matches[0];
 
-        // Fallback: match a tracked protagonist container by gear plurality.
-        // Never map by slot order - tracked owners are the in-world scan order,
-        // so an off-field companion (e.g. Damiane when she cannot be controlled)
-        // simply has no loaded container and must stay unresolved (0) rather than
-        // steal another present character's container.
+        // Fallback: match a tracked protagonist container by gear plurality,
+        // skipping the live controlled container for any other index.
+        const int liveIdent = LiveCharacterIdentity();
         const int trackedCount = Player::GetTrackedPlayerCount();
         for (int i = 0; i < trackedCount; ++i)
         {
             const uintptr_t owner = Player::GetOwner(i);
-            if (owner && IdentifyCharacterFromEquip(owner) == index)
+            if (!owner) continue;
+            if (index != liveIdent && IsLiveCharacter(owner)) continue;
+            if (IdentifyCharacterFromEquip(owner) == index)
                 return owner;
         }
 
