@@ -3709,11 +3709,42 @@ namespace trinity::game
             if (owner) addCand(owner);
         }
 
-        // Accept only candidates whose equipped gear identifies as `index`
+        // Authority: the character-manager slot is the source of truth for
+        // which inventory container belongs to which protagonist - trust it
+        // rather than the equipped-gear signature. A Kliff build that happens
+        // to carry Damiane's signature gear must neither lose Kliff's identity
+        // nor hand his container to Damiane.
+        const int slotN = Player::GetTrackedPlayerCount();
+        const uintptr_t identOwner = (index < slotN) ? Player::GetOwner(index) : 0;
+        if (identOwner) addMatch(identOwner);
+
+        // Remaining candidates (commit-snapshot copies) are accepted only when
+        // their owner chain resolves to the same protagonist. Fall back to the
+        // gear signature only when no owner is available at all; a candidate
+        // owned by another protagonist is never added.
         for (int i = 0; i < candCount; ++i)
         {
-            if (IdentifyCharacterFromEquip(candidates[i]) == index)
-                addMatch(candidates[i]);
+            const uintptr_t c = candidates[i];
+            if (c && c == identOwner) continue;
+
+            int ownerSlot = -1;
+            const uintptr_t h = HolderForContainer(c);
+            uintptr_t own = 0;
+            if (h && ReadPtr(h + 8, &own) && own)
+            {
+                for (int s = 0; s < slotN; ++s)
+                {
+                    if (Player::GetOwner(s) == own) { ownerSlot = s; break; }
+                }
+            }
+
+            if (ownerSlot >= 0)
+            {
+                if (ownerSlot == index) addMatch(c);
+                continue;
+            }
+            if (IdentifyCharacterFromEquip(c) == index)
+                addMatch(c);
         }
 
         return n;
