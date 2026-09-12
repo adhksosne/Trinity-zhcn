@@ -3583,17 +3583,123 @@ namespace trinity::game
         return -1; // Unrecognized
     }
 
-    // Container-level wrapper: walk to the equip component and identify.
+    // Per-item protagonist ownership verdict (0=Kliff, 1=Damiane, 2=Oongka,
+    // -1 = not a signature item). A single mixed-in enemy-signature item must
+    // never decide a whole container, so tests use a full-container tally.
+    static int CharacterIdForTid(uint16_t tid)
+    {
+        char rkey[96] = "", key[96] = "";
+        const auto ContainsCi = [](const char* haystack, const char* needle) -> bool {
+            if (!haystack || !needle || !*needle) return false;
+            const size_t nlen = strlen(needle);
+            for (; *haystack; ++haystack) if (!_strnicmp(haystack, needle, nlen)) return true;
+            return false;
+        };
+
+        // Direct Damiane signatures
+        if (tid == 53935 || tid == 6324 || tid == 6041 || tid == 5306 || tid == 5300 ||
+            tid == 5297 || tid == 5277 || tid == 3463) return 1;
+        // Damiane signature-word ranges (generic weapons need the signature word)
+        if ((tid >= 5450 && tid <= 5468) || (tid >= 5270 && tid <= 5310) ||
+            (tid >= 6320 && tid <= 6330))
+        {
+            KeyForType(tid, rkey, sizeof(rkey));
+            if (rkey[0] && (ContainsCi(rkey, "Damian") || ContainsCi(rkey, "Demian") || ContainsCi(rkey, "Demeniss") ||
+                            ContainsCi(rkey, "Rapier") || ContainsCi(rkey, "Musket") || ContainsCi(rkey, "Caliburn") ||
+                            ContainsCi(rkey, "Spencer") || ContainsCi(rkey, "Dewhaven") ||
+                            ContainsCi(rkey, "WhiteWind") || ContainsCi(rkey, "White_Wind") || ContainsCi(rkey, "Hwando")))
+                return 1;
+        }
+        // Direct Oongka signatures
+        if (tid == 6560 || tid == 6042 || tid == 6305 || (tid >= 6550 && tid <= 6570)) return 2;
+        // Direct Kliff signatures
+        if (tid == 6303 || tid == 6040 || (tid >= 5330 && tid <= 5350)) return 0;
+        // Keyword signatures (unambiguous words only)
+        KeyForType(tid, key, sizeof(key));
+        if (key[0] && (ContainsCi(key, "Damian") || ContainsCi(key, "Demian") || ContainsCi(key, "Demeniss") ||
+                       ContainsCi(key, "Rapier") || ContainsCi(key, "Musket") || ContainsCi(key, "Caliburn") ||
+                       ContainsCi(key, "Spencer") || ContainsCi(key, "Dewhaven") ||
+                       ContainsCi(key, "WhiteWind") || ContainsCi(key, "White_Wind") || ContainsCi(key, "Hwando")))
+            return 1;
+        if (key[0] && (ContainsCi(key, "Oongka") || ContainsCi(key, "Giant") || ContainsCi(key, "Tynion") ||
+                       ContainsCi(key, "Rocket") || ContainsCi(key, "Cannon") || ContainsCi(key, "Club")))
+            return 2;
+        if (key[0] && (ContainsCi(key, "Kliff") || ContainsCi(key, "DarknessKing") || ContainsCi(key, "Darkness_King") ||
+                       ContainsCi(key, "Balgran") || ContainsCi(key, "Aeserion") || ContainsCi(key, "Greatsword")))
+            return 0;
+        return -1;
+    }
+
+    // Read one equip component's table and return the most common protagonist
+    // signature among its items (-1 when nothing signed). Ties resolve to the
+    // first-seen highest so a container that mostly carries one protagonist's
+    // gear wins even when a stray item for another protagonist is present.
+    static int MajorityCharacterFromComp(uintptr_t comp)
+    {
+        if (comp < kMinPointer) return -1;
+        uintptr_t desc = 0, array = 0;
+        uint32_t count = 0;
+        uintptr_t stride = 0xD0;
+        bool found = false;
+        if (ReadPtr(comp + 0x90, &desc) && desc >= kMinPointer &&
+            ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
+            Read32(desc + kOff_EquipTable_Count, &count) && count >= 1 && count <= 64) { found = true; }
+        else if (ReadPtr(comp + 0x80, &desc) && desc >= kMinPointer &&
+            ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
+            Read32(desc + kOff_EquipTable_Count, &count) && count >= 1 && count <= 64) { found = true; }
+        else if (ReadPtr(comp + 0x88, &desc) && desc >= kMinPointer &&
+            ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
+            Read32(desc + kOff_EquipTable_Count, &count) && count >= 1 && count <= 64) { stride = 0xC8; found = true; }
+        else
+        {
+            const uintptr_t tableOffsets[] = { 0x50, 0x38, 0x40, 0x48, 0x60, 0x70 };
+            for (uintptr_t tOff : tableOffsets)
+            {
+                if (!ReadPtr(comp + tOff, &desc) || desc < kMinPointer) continue;
+                if (ReadPtr(desc + kOff_EquipTable_Array, &array) && array >= kMinPointer &&
+                    Read32(desc + kOff_EquipTable_Count, &count) && count >= 1 && count <= 64)
+                { found = true; break; }
+            }
+        }
+        if (!found) return -1;
+
+        int votes[3] = { 0, 0, 0 };
+        int decided = 0;
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            const uintptr_t entry = array + static_cast<uintptr_t>(i) * stride;
+            uint16_t tid = 0;
+            if (!Read16(entry + kOff_InvSlot_TypeId, &tid) || tid == kInvSlot_EmptyType || tid == 0) continue;
+            const int id = CharacterIdForTid(tid);
+            if (id < 0) continue;
+            ++votes[id];
+            ++decided;
+        }
+        if (decided == 0) return -1;
+        int best = -1, bestN = 0;
+        for (int v = 0; v < 3; ++v)
+            if (votes[v] > bestN) { bestN = votes[v]; best = v; }
+        return best;
+    }
+
+    // Container-level wrapper: walk every reachable equip component and tally
+    // the protagonist signatures, returning the plurality across the whole
+    // container. First-hit guessing was wrong when a character's inventory
+    // mixed in another protagonist's signature gear (Kliff's backpack holding
+    // Damiane's blade made him, and his container, look like Damiane).
     static int IdentifyCharacterFromEquip(uintptr_t container)
     {
         if (container < kMinPointer) return -1;
+        int tally[3] = { 0, 0, 0 };
+        int decided = 0;
         uintptr_t sub = 0, comp = 0;
+
         if (ReadPtr(container + kOff_Container_Sub, &sub) && sub >= kMinPointer)
         {
             if (ReadPtr(sub + kOff_Sub_EquipComp, &comp) && comp >= kMinPointer)
             {
-                const int id = IdentifyCharacterIdentity(comp);
-                if (id >= 0) return id;
+                const int id = MajorityCharacterFromComp(comp);
+                if (id >= 0) { ++tally[id]; ++decided; }
             }
         }
 
@@ -3601,20 +3707,20 @@ namespace trinity::game
         const uintptr_t compOffsets[] = { 0x38, 0x30, 0x40, 0x28, 0x48, 0x50 };
         for (uintptr_t sOff : subOffsets)
         {
-            if (ReadPtr(container + sOff, &sub) && sub >= kMinPointer)
+            if (!(ReadPtr(container + sOff, &sub) && sub >= kMinPointer)) continue;
+            for (uintptr_t cOff : compOffsets)
             {
-                for (uintptr_t cOff : compOffsets)
-                {
-                    if (ReadPtr(sub + cOff, &comp) && comp >= kMinPointer)
-                    {
-                        const int id = IdentifyCharacterIdentity(comp);
-                        if (id >= 0) return id;
-                    }
-                }
+                if (!(ReadPtr(sub + cOff, &comp) && comp >= kMinPointer)) continue;
+                const int id = MajorityCharacterFromComp(comp);
+                if (id >= 0) { ++tally[id]; ++decided; }
             }
         }
 
-        return -1;
+        if (decided == 0) return -1;
+        int best = -1, most = 0;
+        for (int v = 0; v < 3; ++v)
+            if (tally[v] > most) { most = tally[v]; best = v; }
+        return best;
     }
 
     int Inventory::IdentifyCharacterFromComp(uintptr_t comp)
