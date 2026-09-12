@@ -6,6 +6,7 @@
 #include "core/mod.h"
 #include "core/state.h"
 #include "core/version.h"
+#include "core/logger.h"
 
 #pragma comment(lib, "dbghelp.lib")
 
@@ -336,6 +337,9 @@ static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep)
 
 static DWORD WINAPI MainThread(LPVOID)
 {
+    // Open Trinity.log at load so startup/hook diagnostics reach the file even
+    // before the first frame calls Logger::EnableConsole with loaded settings.
+    trinity::Logger::InitFileLogging(g_module);
     trinity::Mod::Get().Initialize(g_module);
     return 0;
 }

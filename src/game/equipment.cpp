@@ -258,19 +258,17 @@ namespace trinity::game
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
             const int targetIdx = (s_activeCharIdx < 0) ? liveIdx : s_activeCharIdx;
 
-            static bool s_routeDiag = false;
-            if (!s_routeDiag)
-            {
-                s_routeDiag = true;
-                LOG("equipment: route diag live=%d target=%d clientChar=0x%llX hooked=0x%llX active=0x%llX actors=[0x%llX 0x%llX 0x%llX]",
-                    liveIdx, targetIdx,
-                    (unsigned long long)Inventory::ClientCharacterAddr(),
-                    (unsigned long long)Dye::HookedClientComp(),
-                    (unsigned long long)Dye::ActiveClientComp(),
-                    (unsigned long long)Player::GetActor(0),
-                    (unsigned long long)Player::GetActor(1),
-                    (unsigned long long)Player::GetActor(2));
-            }
+        {
+            // TEMP ROUTING DIAGNOSTIC - throttled 1s into Trinity.log.
+            LOG_THROTTLE(1000,
+                "equipdiag[route]: live=%d target=%d clientChar=0x%llX serverChar=0x%llX hooked=0x%llX active=0x%llX charAddr(t)=0x%llX",
+                liveIdx, targetIdx,
+                (unsigned long long)Inventory::ClientCharacterAddr(),
+                (unsigned long long)Inventory::ServerCharacterAddr(),
+                (unsigned long long)Dye::HookedClientComp(),
+                (unsigned long long)Dye::ActiveClientComp(),
+                (unsigned long long)Inventory::CharacterAddr(targetIdx));
+        }
 
             if (targetIdx == liveIdx)
             {
