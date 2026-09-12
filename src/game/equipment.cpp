@@ -258,18 +258,6 @@ namespace trinity::game
             const int liveIdx = Inventory::ActivePlayerCharacterIdx();
             const int targetIdx = (s_activeCharIdx < 0) ? liveIdx : s_activeCharIdx;
 
-        {
-            // TEMP ROUTING DIAGNOSTIC - throttled 1s into Trinity.log.
-            LOG_THROTTLE(1000,
-                "equipdiag[route]: live=%d target=%d clientChar=0x%llX serverChar=0x%llX hooked=0x%llX active=0x%llX charAddr(t)=0x%llX",
-                liveIdx, targetIdx,
-                (unsigned long long)Inventory::ClientCharacterAddr(),
-                (unsigned long long)Inventory::ServerCharacterAddr(),
-                (unsigned long long)Dye::HookedClientComp(),
-                (unsigned long long)Dye::ActiveClientComp(),
-                (unsigned long long)Inventory::CharacterAddr(targetIdx));
-        }
-
             if (targetIdx == liveIdx)
             {
                 // The validated live character's walk leads - see dye.cpp for

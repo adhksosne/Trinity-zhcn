@@ -3687,7 +3687,7 @@ namespace trinity::game
     // container. First-hit guessing was wrong when a character's inventory
     // mixed in another protagonist's signature gear (Kliff's backpack holding
     // Damiane's blade made him, and his container, look like Damiane).
-    static int IdentifyCharacterFromEquip(uintptr_t container, int votesOut[3] = nullptr)
+    static int IdentifyCharacterFromEquip(uintptr_t container)
     {
         if (container < kMinPointer) return -1;
         int tally[3] = { 0, 0, 0 };
@@ -3716,7 +3716,6 @@ namespace trinity::game
             }
         }
 
-        if (votesOut) { votesOut[0] = tally[0]; votesOut[1] = tally[1]; votesOut[2] = tally[2]; }
         if (decided == 0) return -1;
         int best = -1, most = 0;
         for (int v = 0; v < 3; ++v)
@@ -3830,42 +3829,6 @@ namespace trinity::game
         {
             const uintptr_t owner = Player::GetOwner(i);
             if (owner) addCand(owner);
-        }
-
-        // TEMP ROUTING DIAGNOSTIC - remove once the equipment editor's
-        // character tabs are confirmed correct. Throttled to 1s; the whole
-        // routing chain (client container, live identity, tracked owners and
-        // every candidate's gear-plurality votes) lands in Trinity.log.
-        {
-            int cv[3] = { 0, 0, 0 };
-            const int clientVerdict = clientC ? IdentifyCharacterFromEquip(clientC, cv) : -1;
-            char buf[512];
-            snprintf(buf, sizeof(buf),
-                     "equipdiag[addrs]: idx=%d client=0x%llX live=%s ident=%d votes=%d/%d/%d | tracked=%d",
-                     index, (unsigned long long)clientC,
-                     clientC ? (IsLiveCharacter(clientC) ? "Y" : "N") : "-",
-                     clientVerdict, cv[0], cv[1], cv[2], trackedCount);
-            for (int i = 0; i < trackedCount && i < 3; ++i)
-            {
-                int ov[3] = { 0, 0, 0 };
-                const uintptr_t own = Player::GetOwner(i);
-                const int verdict = own ? IdentifyCharacterFromEquip(own, ov) : -1;
-                char tmp[96];
-                snprintf(tmp, sizeof(tmp), " | own[%d]=0x%llX id=%d v=%d/%d/%d",
-                         i, (unsigned long long)own, verdict, ov[0], ov[1], ov[2]);
-                strcat_s(buf, sizeof(buf), tmp);
-            }
-            LOG_THROTTLE(1000, "%s", buf);
-
-            for (int i = 0; i < candCount; ++i)
-            {
-                int kv[3] = { 0, 0, 0 };
-                const int verdict = IdentifyCharacterFromEquip(candidates[i], kv);
-                LOG_THROTTLE(1000, "equipdiag[cand]: idx=%d cand[%d]=0x%llX id=%d votes=%d/%d/%d live=%s",
-                             index, i, (unsigned long long)candidates[i], verdict,
-                             kv[0], kv[1], kv[2],
-                             IsLiveCharacter(candidates[i]) ? "Y" : "N");
-            }
         }
 
         // Accept candidates whose equipped gear identifies as `index`. The
