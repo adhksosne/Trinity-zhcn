@@ -3815,42 +3815,18 @@ namespace trinity::game
             if (owner) addCand(owner);
         }
 
-        // Authority: the character-manager slot is the source of truth for
-        // which inventory container belongs to which protagonist - trust it
-        // rather than the equipped-gear signature. A Kliff build that happens
-        // to carry Damiane's signature gear must neither lose Kliff's identity
-        // nor hand his container to Damiane.
-        const int slotN = Player::GetTrackedPlayerCount();
-        const uintptr_t identOwner = (index < slotN) ? Player::GetOwner(index) : 0;
-        if (identOwner) addMatch(identOwner);
-
-        // Remaining candidates (commit-snapshot copies) are accepted only when
-        // their owner chain resolves to the same protagonist. Fall back to the
-        // gear signature only when no owner is available at all; a candidate
-        // owned by another protagonist is never added.
+        // Accept candidates whose equipped gear identifies as `index`. The
+        // signature test is a full-container plurality (IdentifyCharacterFromEquip),
+        // so a stray item for another protagonist does not redirect the match.
+        // The tracked-owner slot order is NOT trustable as a fixed character id
+        // here: it is the in-world scan order, so an off-field protagonist
+        // (e.g. Damiane when she cannot be controlled) is simply absent, and
+        // slot->character mapping would break. Only the gear plurality plus the
+        // live-client check above bind a container to a protagonist.
         for (int i = 0; i < candCount; ++i)
         {
-            const uintptr_t c = candidates[i];
-            if (c && c == identOwner) continue;
-
-            int ownerSlot = -1;
-            const uintptr_t h = HolderForContainer(c);
-            uintptr_t own = 0;
-            if (h && ReadPtr(h + 8, &own) && own)
-            {
-                for (int s = 0; s < slotN; ++s)
-                {
-                    if (Player::GetOwner(s) == own) { ownerSlot = s; break; }
-                }
-            }
-
-            if (ownerSlot >= 0)
-            {
-                if (ownerSlot == index) addMatch(c);
-                continue;
-            }
-            if (IdentifyCharacterFromEquip(c) == index)
-                addMatch(c);
+            if (IdentifyCharacterFromEquip(candidates[i]) == index)
+                addMatch(candidates[i]);
         }
 
         return n;
@@ -3864,13 +3840,17 @@ namespace trinity::game
         const int n = CharacterAddrs(index, matches, 16);
         if (n > 0) return matches[0];
 
-        // Fallback: the tracked party container for a companion. Its gear may
-        // carry nothing recognizable yet, so use the owner resolved by the
-        // character manager rather than the actor subobject.
-        if (index > 0 && index < 3)
+        // Fallback: match a tracked protagonist container by gear plurality.
+        // Never map by slot order - tracked owners are the in-world scan order,
+        // so an off-field companion (e.g. Damiane when she cannot be controlled)
+        // simply has no loaded container and must stay unresolved (0) rather than
+        // steal another present character's container.
+        const int trackedCount = Player::GetTrackedPlayerCount();
+        for (int i = 0; i < trackedCount; ++i)
         {
-            const uintptr_t partyOwner = Player::GetOwner(index);
-            if (partyOwner >= kMinPointer) return partyOwner;
+            const uintptr_t owner = Player::GetOwner(i);
+            if (owner && IdentifyCharacterFromEquip(owner) == index)
+                return owner;
         }
 
         return 0;
