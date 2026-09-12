@@ -1240,6 +1240,11 @@ namespace trinity::gui
                 Settings::Save();
         }
 
+        // Custom Coordinates: manual XYZ entry for spots the map marker /
+        // waypoint cannot reach precisely.
+        ui::Submenu(LOC("Custom Coordinates"), "coord_tp",
+                    LOC("Enter coordinates and teleport there directly."));
+
         // Saved Locations (Bookmarks)
         ui::Submenu(LOC("Saved Locations"), "saved_locs", LOC("Save and teleport to custom bookmarked coordinates."));
 
@@ -1249,6 +1254,50 @@ namespace trinity::gui
                         LOC("Warp to any location on the map.")))
         {
             game::Teleport::LoadCatalog();
+        }
+
+        ui::End();
+    }
+
+    // Custom coordinate teleport: the entered XYZ lives in session state only
+    // (not persisted); "Fill Current Position" seeds it from the live player,
+    // after which Left/Right or Enter-to-type fine-tunes the values.
+    static float s_customX = 0.0f;
+    static float s_customY = 0.0f;
+    static float s_customZ = 0.0f;
+
+    static void RenderCoordTeleport()
+    {
+        ui::Begin(LOC("Custom Coordinates"));
+
+        float px = 0.0f, py = 0.0f, pz = 0.0f;
+        const bool havePlayer = game::Teleport::GetLastPosition(&px, &py, &pz);
+        if (ui::Option(LOC("Fill Current Position"),
+                       havePlayer ? LOC("Set the three fields to your current player position.")
+                                  : LOC("Player position not ready")))
+        {
+            if (havePlayer)
+            {
+                s_customX = px;
+                s_customY = py;
+                s_customZ = pz;
+                ui::Toast(LOC("Coordinates loaded"));
+            }
+        }
+
+        ui::FloatOption(LOC("X Coordinate"), &s_customX, -1.0e9f, 1.0e9f, 10.0f, 0.0f, "%.1f",
+                        LOC("East/west world coordinate."));
+        ui::FloatOption(LOC("Y Coordinate"), &s_customY, -1.0e9f, 1.0e9f, 10.0f, 0.0f, "%.1f",
+                        LOC("Height world coordinate."));
+        ui::FloatOption(LOC("Z Coordinate"), &s_customZ, -1.0e9f, 1.0e9f, 10.0f, 0.0f, "%.1f",
+                        LOC("North/south world coordinate."));
+
+        if (ui::Option(LOC("Teleport to Coordinates"), LOC("Warp to the entered coordinates.")))
+        {
+            if (game::Teleport::TeleportToCoordinates(s_customX, s_customY, s_customZ))
+                ui::Toast(LOC("Teleporting to coordinates"));
+            else
+                ui::Toast(LOC("Teleport failed"));
         }
 
         ui::End();
@@ -3241,6 +3290,7 @@ namespace trinity::gui
         else if (!strcmp(cur, "keybinds")) RenderKeybinds();
         else if (!strcmp(cur, "menu_ui")) RenderMenuUISettings();
         else if (!strcmp(cur, "font_settings")) RenderFontSettings();
+        else if (!strcmp(cur, "coord_tp"))   RenderCoordTeleport();
         else if (!strcmp(cur, "saved_locs")) RenderSavedLocations();
         else if (!strcmp(cur, "loc_manage")) RenderSavedLocationManage();
         else if (!strcmp(cur, "ftcats"))   RenderFastTravelCats();
