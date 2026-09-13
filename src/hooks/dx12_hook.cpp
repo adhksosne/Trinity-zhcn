@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <d3d12.h>
 #include <dxgi1_5.h>
+#include <intrin.h>
 #include <vector>
 
 #include <MinHook.h>
@@ -61,17 +62,68 @@ namespace trinity::hooks
     // Streamline's read-only finished frames). Never cleared for the session.
     static bool g_wrapperActive = false;
 
-    // Reentrancy guard for swapchain creation. When the game calls our patched
+    // Guard for swapchain creation. When the game calls our patched
     // CreateSwapChainForHwnd, the real implementation (Streamline's interposer)
     // can itself create swapchains through the SAME class vtable slot we patched -
-    // and it does exactly this every time Frame Generation is toggled, since SL is
-    // spec-required to tear down and recreate the swapchain on an FG on/off. Only
-    // the OUTERMOST call (the one the game made) may be wrapped; nested internal
-    // ones are Streamline's own plumbing and must pass straight through, or we
-    // recurse into the interposer mid-(re)creation and hang / remove the device.
-    // This is the crash that appears "after a couple loads": the first swapchain
-    // wraps cleanly, then an FG toggle re-enters us during SL's rebuild.
-    static thread_local bool t_inSwapChainCreate = false;
+    // and it does this every time Frame Generation is toggled or any display
+    // setting changes, since SL is spec-required to tear down and recreate the
+    // swapchain. Only the OUTERMOST call (the one the game made) may be wrapped;
+    // nested internal ones are Streamline's own plumbing and must pass straight
+    // through, or we recurse into the interposer mid-(re)creation and hang /
+    // remove the device.
+    //
+    // This is THREAD-INDEPENDENT. It used to be thread_local, which silently
+    // failed whenever Streamline rebuilt the chain on its own worker thread:
+    // that thread's flag read false, so we wrapped Streamline's private chain,
+    // stealing its refcount and corrupting SL's bookkeeping. "Apply any display
+    // setting" then crashed instantly. A plain counter is correct here because
+    // the interposer is only ever entered from within a creation we started.
+    static LONG g_swapChainCreateDepth = 0;
+
+    // Escape hatch for diagnosis: TRINITY_DISABLE_SWAPCHAIN_WRAPPER=1 makes every
+    // creation pass through native, so the overlay draws via the plain Present
+    // byte-hook instead of the wrapper. Lets a user isolate a wrapper-vs-Streamline
+    // conflict without rebuilding.
+    static bool WrapperDisabledByEnv()
+    {
+        static const bool disabled = [] {
+            char buf[8] = {};
+            const DWORD n = GetEnvironmentVariableA("TRINITY_DISABLE_SWAPCHAIN_WRAPPER", buf, sizeof(buf));
+            return n > 0 && n < sizeof(buf) && buf[0] == '1';
+        }();
+        return disabled;
+    }
+
+    // True when the call into our patched factory slot came from a Frame
+    // Generation / upscaler module rather than from the game. Those creations are
+    // Streamline's own and must never be wrapped. Checked by the caller's return
+    // address rather than a thread flag so it holds on any thread.
+    static bool CallerIsFrameGenerationModule()
+    {
+        HMODULE mod = nullptr;
+        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                reinterpret_cast<LPCSTR>(_ReturnAddress()), &mod) || !mod)
+            return false;
+
+        char path[MAX_PATH] = {};
+        if (!GetModuleFileNameA(mod, path, MAX_PATH))
+            return false;
+        const char* base = strrchr(path, '\\');
+        base = base ? base + 1 : path;
+
+        static const char* kFgModules[] = {
+            "sl.interposer", "sl.common", "sl.dlss_g", "sl.reflex",
+            "nvngx_dlssg", "nvngx", "nvngx_dlss", "amd_fidelityfx",
+            "ffx_framegeneration", "libxess", "xess",
+        };
+        for (const char* name : kFgModules)
+        {
+            if (_strnicmp(base, name, strlen(name)) == 0)
+                return true;
+        }
+        return false;
+    }
 
     // The window our wrapped (main) swapchain belongs to. The engine and Streamline
     // can spin up auxiliary swapchains on other windows; we only ever want the one
@@ -1229,6 +1281,9 @@ namespace trinity::hooks
                 *ppv = static_cast<IDXGISwapChain4*>(this);
                 return S_OK;
             }
+            // Any other interface is answered by the inner chain. Hand back a
+            // properly AddRef'd reference so the caller's Release lands on the
+            // inner object's own counter - never a borrowed pointer.
             return m_inner->QueryInterface(riid, ppv);
         }
         ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
@@ -1402,17 +1457,17 @@ namespace trinity::hooks
         const DXGI_SWAP_CHAIN_DESC1* desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC* fsDesc,
         IDXGIOutput* restrictOut, IDXGISwapChain1** ppSwapChain)
     {
-        // Only the outermost (game-issued) creation is wrapped. If we are already
-        // inside a creation on this thread, this is Streamline recreating the chain
-        // through the same patched slot during an FG toggle - let it complete
-        // untouched, otherwise we recurse into the interposer mid-rebuild.
-        const bool nested = t_inSwapChainCreate;
-        t_inSwapChainCreate = true;
-        const HRESULT hr = oFactoryCreateSwapChainForHwnd(self, device, hwnd, desc, fsDesc, restrictOut, ppSwapChain);
-        if (!nested)
+        __try
         {
-            t_inSwapChainCreate = false;
-            if (SUCCEEDED(hr))
+            // Only the outermost (game-issued) creation is wrapped. Nested calls
+            // are Streamline's own plumbing during a display-settings change or FG
+            // toggle - let them complete untouched, otherwise we recurse into the
+            // interposer mid-rebuild and remove the device. Depth is process-wide
+            // (not thread_local) because SL rebuilds on its own worker thread.
+            const bool nested = (InterlockedIncrement(&g_swapChainCreateDepth) > 1);
+            const HRESULT hr = oFactoryCreateSwapChainForHwnd(self, device, hwnd, desc, fsDesc, restrictOut, ppSwapChain);
+
+            if (!nested && SUCCEEDED(hr) && !WrapperDisabledByEnv() && !CallerIsFrameGenerationModule())
             {
                 // For D3D12 the first argument is the swapchain's present command
                 // queue - the queue that owns the back buffers. Pin it as the queue
@@ -1426,8 +1481,19 @@ namespace trinity::hooks
                 }
                 WrapSwapChain(ppSwapChain, hwnd);
             }
+            return hr;
         }
-        return hr;
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            // Never let a fault in our wrapping logic take the game down with it.
+            LOG_ERR("dx12: CreateSwapChainForHwnd wrapper faulted (0x%08X) - creation passed through.",
+                    GetExceptionCode());
+            if (InterlockedCompareExchange(&g_swapChainCreateDepth, 0, 0) > 0)
+                InterlockedDecrement(&g_swapChainCreateDepth);
+            if (ppSwapChain && *ppSwapChain)
+                return S_OK;
+            return E_FAIL;
+        }
     }
 
     // VirtualProtect-patch one vtable slot. Reentrancy-safe (no MinHook, no thread
