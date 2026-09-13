@@ -3,7 +3,6 @@
 #include <Windows.h>
 #include <d3d12.h>
 #include <dxgi1_5.h>
-#include <intrin.h>
 #include <vector>
 
 #include <MinHook.h>
@@ -62,22 +61,20 @@ namespace trinity::hooks
     // Streamline's read-only finished frames). Never cleared for the session.
     static bool g_wrapperActive = false;
 
-    // Guard for swapchain creation. When the game calls our patched
-    // CreateSwapChainForHwnd, the real implementation (Streamline's interposer)
-    // can itself create swapchains through the SAME class vtable slot we patched -
-    // and it does this every time Frame Generation is toggled or any display
-    // setting changes, since SL is spec-required to tear down and recreate the
-    // swapchain. Only the OUTERMOST call (the one the game made) may be wrapped;
-    // nested internal ones are Streamline's own plumbing and must pass straight
-    // through, or we recurse into the interposer mid-(re)creation and hang /
-    // remove the device.
+    // Reentrancy guard for swapchain creation. The real CreateSwapChainForHwnd
+    // behind the slot we patch is Streamline's interposer, which can itself create
+    // swapchains through the SAME class vtable slot any time Frame Generation is
+    // toggled or a display setting changes (SL must tear down and recreate the
+    // chain). Only the OUTERMOST call - the one the game made - may be wrapped;
+    // nested internal ones are SL's own plumbing and must pass through untouched,
+    // or we recurse into the interposer mid-(re)creation and hang / remove device.
     //
-    // This is THREAD-INDEPENDENT. It used to be thread_local, which silently
-    // failed whenever Streamline rebuilt the chain on its own worker thread:
-    // that thread's flag read false, so we wrapped Streamline's private chain,
-    // stealing its refcount and corrupting SL's bookkeeping. "Apply any display
-    // setting" then crashed instantly. A plain counter is correct here because
-    // the interposer is only ever entered from within a creation we started.
+    // This is a process-wide counter (NOT thread_local) because SL does much of its
+    // rebuild on its own worker thread; a thread-local flag read false there and we
+    // wrapped SL's private chain, stealing its refcount and corrupting SL's
+    // bookkeeping. The counter is balanced (decremented on both success and fault),
+    // so depth returns to 0 after each creation and the next one on any thread is
+    // recognised as outermost again.
     static LONG g_swapChainCreateDepth = 0;
 
     // Escape hatch for diagnosis: TRINITY_DISABLE_SWAPCHAIN_WRAPPER=1 makes every
@@ -92,37 +89,6 @@ namespace trinity::hooks
             return n > 0 && n < sizeof(buf) && buf[0] == '1';
         }();
         return disabled;
-    }
-
-    // True when the call into our patched factory slot came from a Frame
-    // Generation / upscaler module rather than from the game. Those creations are
-    // Streamline's own and must never be wrapped. Checked by the caller's return
-    // address rather than a thread flag so it holds on any thread.
-    static bool CallerIsFrameGenerationModule()
-    {
-        HMODULE mod = nullptr;
-        if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                reinterpret_cast<LPCSTR>(_ReturnAddress()), &mod) || !mod)
-            return false;
-
-        char path[MAX_PATH] = {};
-        if (!GetModuleFileNameA(mod, path, MAX_PATH))
-            return false;
-        const char* base = strrchr(path, '\\');
-        base = base ? base + 1 : path;
-
-        static const char* kFgModules[] = {
-            "sl.interposer", "sl.common", "sl.dlss_g", "sl.reflex",
-            "nvngx_dlssg", "nvngx", "nvngx_dlss", "amd_fidelityfx",
-            "ffx_framegeneration", "libxess", "xess",
-        };
-        for (const char* name : kFgModules)
-        {
-            if (_strnicmp(base, name, strlen(name)) == 0)
-                return true;
-        }
-        return false;
     }
 
     // The window our wrapped (main) swapchain belongs to. The engine and Streamline
@@ -1466,8 +1432,17 @@ namespace trinity::hooks
             // (not thread_local) because SL rebuilds on its own worker thread.
             const bool nested = (InterlockedIncrement(&g_swapChainCreateDepth) > 1);
             const HRESULT hr = oFactoryCreateSwapChainForHwnd(self, device, hwnd, desc, fsDesc, restrictOut, ppSwapChain);
+            const LONG depth = InterlockedDecrement(&g_swapChainCreateDepth);
 
-            if (!nested && SUCCEEDED(hr) && !WrapperDisabledByEnv() && !CallerIsFrameGenerationModule())
+            // NOTE: we deliberately do NOT skip wrapping when the call originated
+            // inside Streamline. With FG enabled SL's interposer is the *normal*
+            // creation path for the game's real chain too - a return-address check
+            // against sl.*/nvngx* would reject that chain and the overlay (menu)
+            // would never initialise. The depth counter above already keeps us out
+            // of true internal recursion on any thread; the WrapSwapChain hwnd/size
+            // guards reject auxiliary/probe surfaces.
+            (void)depth;
+            if (!nested && SUCCEEDED(hr) && !WrapperDisabledByEnv())
             {
                 // For D3D12 the first argument is the swapchain's present command
                 // queue - the queue that owns the back buffers. Pin it as the queue
@@ -1488,8 +1463,7 @@ namespace trinity::hooks
             // Never let a fault in our wrapping logic take the game down with it.
             LOG_ERR("dx12: CreateSwapChainForHwnd wrapper faulted (0x%08X) - creation passed through.",
                     GetExceptionCode());
-            if (InterlockedCompareExchange(&g_swapChainCreateDepth, 0, 0) > 0)
-                InterlockedDecrement(&g_swapChainCreateDepth);
+            InterlockedDecrement(&g_swapChainCreateDepth);
             if (ppSwapChain && *ppSwapChain)
                 return S_OK;
             return E_FAIL;
