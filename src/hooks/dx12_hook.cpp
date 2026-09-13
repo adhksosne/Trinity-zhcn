@@ -1230,6 +1230,32 @@ namespace trinity::hooks
     public:
         explicit WrappedIDXGISwapChain(IDXGISwapChain4* inner) : m_inner(inner) {}
 
+        // Repoint this wrapper at a freshly recreated inner chain. Streamline
+        // rebuilds the swapchain on EVERY display-settings change / FG toggle, and
+        // the game keeps a cached pointer to OUR wrapper object across that. If we
+        // handed out a NEW wrapper per recreation, the game's cached pointer would
+        // dangle (UAF) - exactly the "menu works, applying settings crashes" bug.
+        // So the wrapper is a stable proxy: one object for the whole session, with
+        // the inner chain swapped atomically underneath it.
+        void Retarget(IDXGISwapChain4* newInner)
+        {
+            if (!newInner) return;
+            newInner->AddRef();
+            IDXGISwapChain4* old = static_cast<IDXGISwapChain4*>(
+                InterlockedExchangePointer(reinterpret_cast<void**>(&m_inner), newInner));
+            if (old) old->Release();
+        }
+
+        // Atomic read of the current inner chain. Retarget can run on Streamline's
+        // worker thread while Present/GetBuffer/etc. run on the render thread, so
+        // every access must go through an interlocked load, never a raw read.
+        IDXGISwapChain4* Inner() const
+        {
+            return static_cast<IDXGISwapChain4*>(
+                InterlockedCompareExchangePointer(
+                    const_cast<void**>(reinterpret_cast<void const**>(&m_inner)), nullptr, nullptr));
+        }
+
         // IUnknown ----------------------------------------------------------
         HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override
         {
@@ -1250,32 +1276,41 @@ namespace trinity::hooks
             // Any other interface is answered by the inner chain. Hand back a
             // properly AddRef'd reference so the caller's Release lands on the
             // inner object's own counter - never a borrowed pointer.
-            return m_inner->QueryInterface(riid, ppv);
+            IDXGISwapChain4* inner = Inner();
+            return inner ? inner->QueryInterface(riid, ppv) : E_NOINTERFACE;
         }
         ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_ref); }
         ULONG STDMETHODCALLTYPE Release() override
         {
             const ULONG r = InterlockedDecrement(&m_ref);
-            if (r == 0) { m_inner->Release(); delete this; }
+            if (r == 0)
+            {
+                IDXGISwapChain4* inner = static_cast<IDXGISwapChain4*>(
+                    InterlockedExchangePointer(reinterpret_cast<void**>(&m_inner), nullptr));
+                if (inner) inner->Release();
+                delete this;
+            }
             return r;
         }
 
         // IDXGIObject -------------------------------------------------------
-        HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID n, UINT s, const void* d) override { return m_inner->SetPrivateData(n, s, d); }
-        HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID n, const IUnknown* p) override { return m_inner->SetPrivateDataInterface(n, p); }
-        HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID n, UINT* s, void* d) override { return m_inner->GetPrivateData(n, s, d); }
-        HRESULT STDMETHODCALLTYPE GetParent(REFIID riid, void** pp) override { return m_inner->GetParent(riid, pp); }
+        HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID n, UINT s, const void* d) override { IDXGISwapChain4* i = Inner(); return i ? i->SetPrivateData(n, s, d) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID n, const IUnknown* p) override { IDXGISwapChain4* i = Inner(); return i ? i->SetPrivateDataInterface(n, p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID n, UINT* s, void* d) override { IDXGISwapChain4* i = Inner(); return i ? i->GetPrivateData(n, s, d) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetParent(REFIID riid, void** pp) override { IDXGISwapChain4* i = Inner(); return i ? i->GetParent(riid, pp) : E_NOINTERFACE; }
 
         // IDXGIDeviceSubObject ---------------------------------------------
-        HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void** pp) override { return m_inner->GetDevice(riid, pp); }
+        HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void** pp) override { IDXGISwapChain4* i = Inner(); return i ? i->GetDevice(riid, pp) : E_NOINTERFACE; }
 
         // IDXGISwapChain ----------------------------------------------------
         HRESULT STDMETHODCALLTYPE Present(UINT syncInterval, UINT flags) override
         {
             bool drew = false;
+            IDXGISwapChain4* inner = Inner();
+            if (!inner) return S_OK;
             __try
             {
-                drew = RenderOverlay(m_inner, true);
+                drew = RenderOverlay(inner, true);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -1284,7 +1319,7 @@ namespace trinity::hooks
             HRESULT hr;
             __try
             {
-                hr = m_inner->Present(syncInterval, flags);
+                hr = inner->Present(syncInterval, flags);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -1297,41 +1332,45 @@ namespace trinity::hooks
             PostPresentDeviceCheck(drew);
             return hr;
         }
-        HRESULT STDMETHODCALLTYPE GetBuffer(UINT i, REFIID riid, void** pp) override { return m_inner->GetBuffer(i, riid, pp); }
-        HRESULT STDMETHODCALLTYPE SetFullscreenState(BOOL fs, IDXGIOutput* t) override { return m_inner->SetFullscreenState(fs, t); }
-        HRESULT STDMETHODCALLTYPE GetFullscreenState(BOOL* fs, IDXGIOutput** t) override { return m_inner->GetFullscreenState(fs, t); }
-        HRESULT STDMETHODCALLTYPE GetDesc(DXGI_SWAP_CHAIN_DESC* d) override { return m_inner->GetDesc(d); }
+        HRESULT STDMETHODCALLTYPE GetBuffer(UINT i, REFIID riid, void** pp) override { IDXGISwapChain4* c = Inner(); return c ? c->GetBuffer(i, riid, pp) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE SetFullscreenState(BOOL fs, IDXGIOutput* t) override { IDXGISwapChain4* c = Inner(); return c ? c->SetFullscreenState(fs, t) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetFullscreenState(BOOL* fs, IDXGIOutput** t) override { IDXGISwapChain4* c = Inner(); return c ? c->GetFullscreenState(fs, t) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetDesc(DXGI_SWAP_CHAIN_DESC* d) override { IDXGISwapChain4* c = Inner(); return c ? c->GetDesc(d) : E_FAIL; }
         HRESULT STDMETHODCALLTYPE ResizeBuffers(UINT bc, UINT w, UINT h, DXGI_FORMAT f, UINT fl) override
         {
+            IDXGISwapChain4* inner = Inner();
+            if (!inner) return E_FAIL;
             __try
             {
                 PreResizeCleanup();
-                const HRESULT hr = m_inner->ResizeBuffers(bc, w, h, f, fl);
-                if (SUCCEEDED(hr)) PostResizeRebuild(m_inner);
+                const HRESULT hr = inner->ResizeBuffers(bc, w, h, f, fl);
+                if (SUCCEEDED(hr)) PostResizeRebuild(inner);
                 return hr;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
                 LOG_ERR("dx12: wrapper ResizeBuffers crashed during overlay rebuild - skipped");
-                return m_inner->ResizeBuffers(bc, w, h, f, fl);
+                return inner->ResizeBuffers(bc, w, h, f, fl);
             }
         }
-        HRESULT STDMETHODCALLTYPE ResizeTarget(const DXGI_MODE_DESC* p) override { return m_inner->ResizeTarget(p); }
-        HRESULT STDMETHODCALLTYPE GetContainingOutput(IDXGIOutput** pp) override { return m_inner->GetContainingOutput(pp); }
-        HRESULT STDMETHODCALLTYPE GetFrameStatistics(DXGI_FRAME_STATISTICS* p) override { return m_inner->GetFrameStatistics(p); }
-        HRESULT STDMETHODCALLTYPE GetLastPresentCount(UINT* p) override { return m_inner->GetLastPresentCount(p); }
+        HRESULT STDMETHODCALLTYPE ResizeTarget(const DXGI_MODE_DESC* p) override { IDXGISwapChain4* c = Inner(); return c ? c->ResizeTarget(p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetContainingOutput(IDXGIOutput** pp) override { IDXGISwapChain4* c = Inner(); return c ? c->GetContainingOutput(pp) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetFrameStatistics(DXGI_FRAME_STATISTICS* p) override { IDXGISwapChain4* c = Inner(); return c ? c->GetFrameStatistics(p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetLastPresentCount(UINT* p) override { IDXGISwapChain4* c = Inner(); return c ? c->GetLastPresentCount(p) : E_FAIL; }
 
         // IDXGISwapChain1 ---------------------------------------------------
-        HRESULT STDMETHODCALLTYPE GetDesc1(DXGI_SWAP_CHAIN_DESC1* p) override { return m_inner->GetDesc1(p); }
-        HRESULT STDMETHODCALLTYPE GetFullscreenDesc(DXGI_SWAP_CHAIN_FULLSCREEN_DESC* p) override { return m_inner->GetFullscreenDesc(p); }
-        HRESULT STDMETHODCALLTYPE GetHwnd(HWND* p) override { return m_inner->GetHwnd(p); }
-        HRESULT STDMETHODCALLTYPE GetCoreWindow(REFIID riid, void** pp) override { return m_inner->GetCoreWindow(riid, pp); }
+        HRESULT STDMETHODCALLTYPE GetDesc1(DXGI_SWAP_CHAIN_DESC1* p) override { IDXGISwapChain4* c = Inner(); return c ? c->GetDesc1(p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetFullscreenDesc(DXGI_SWAP_CHAIN_FULLSCREEN_DESC* p) override { IDXGISwapChain4* c = Inner(); return c ? c->GetFullscreenDesc(p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetHwnd(HWND* p) override { IDXGISwapChain4* c = Inner(); return c ? c->GetHwnd(p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetCoreWindow(REFIID riid, void** pp) override { IDXGISwapChain4* c = Inner(); return c ? c->GetCoreWindow(riid, pp) : E_NOINTERFACE; }
         HRESULT STDMETHODCALLTYPE Present1(UINT syncInterval, UINT flags, const DXGI_PRESENT_PARAMETERS* pp) override
         {
             bool drew = false;
+            IDXGISwapChain4* inner = Inner();
+            if (!inner) return S_OK;
             __try
             {
-                drew = RenderOverlay(m_inner, true);
+                drew = RenderOverlay(inner, true);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -1340,7 +1379,7 @@ namespace trinity::hooks
             HRESULT hr;
             __try
             {
-                hr = m_inner->Present1(syncInterval, flags, pp);
+                hr = inner->Present1(syncInterval, flags, pp);
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
@@ -1350,49 +1389,53 @@ namespace trinity::hooks
             PostPresentDeviceCheck(drew);
             return hr;
         }
-        BOOL    STDMETHODCALLTYPE IsTemporaryMonoSupported() override { return m_inner->IsTemporaryMonoSupported(); }
-        HRESULT STDMETHODCALLTYPE GetRestrictToOutput(IDXGIOutput** pp) override { return m_inner->GetRestrictToOutput(pp); }
-        HRESULT STDMETHODCALLTYPE SetBackgroundColor(const DXGI_RGBA* p) override { return m_inner->SetBackgroundColor(p); }
-        HRESULT STDMETHODCALLTYPE GetBackgroundColor(DXGI_RGBA* p) override { return m_inner->GetBackgroundColor(p); }
-        HRESULT STDMETHODCALLTYPE SetRotation(DXGI_MODE_ROTATION r) override { return m_inner->SetRotation(r); }
-        HRESULT STDMETHODCALLTYPE GetRotation(DXGI_MODE_ROTATION* p) override { return m_inner->GetRotation(p); }
+        BOOL    STDMETHODCALLTYPE IsTemporaryMonoSupported() override { IDXGISwapChain4* c = Inner(); return c ? c->IsTemporaryMonoSupported() : FALSE; }
+        HRESULT STDMETHODCALLTYPE GetRestrictToOutput(IDXGIOutput** pp) override { IDXGISwapChain4* c = Inner(); return c ? c->GetRestrictToOutput(pp) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE SetBackgroundColor(const DXGI_RGBA* p) override { IDXGISwapChain4* c = Inner(); return c ? c->SetBackgroundColor(p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetBackgroundColor(DXGI_RGBA* p) override { IDXGISwapChain4* c = Inner(); return c ? c->GetBackgroundColor(p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE SetRotation(DXGI_MODE_ROTATION r) override { IDXGISwapChain4* c = Inner(); return c ? c->SetRotation(r) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetRotation(DXGI_MODE_ROTATION* p) override { IDXGISwapChain4* c = Inner(); return c ? c->GetRotation(p) : E_FAIL; }
 
         // IDXGISwapChain2 ---------------------------------------------------
-        HRESULT STDMETHODCALLTYPE SetSourceSize(UINT w, UINT h) override { return m_inner->SetSourceSize(w, h); }
-        HRESULT STDMETHODCALLTYPE GetSourceSize(UINT* w, UINT* h) override { return m_inner->GetSourceSize(w, h); }
-        HRESULT STDMETHODCALLTYPE SetMaximumFrameLatency(UINT m) override { return m_inner->SetMaximumFrameLatency(m); }
-        HRESULT STDMETHODCALLTYPE GetMaximumFrameLatency(UINT* m) override { return m_inner->GetMaximumFrameLatency(m); }
-        HANDLE  STDMETHODCALLTYPE GetFrameLatencyWaitableObject() override { return m_inner->GetFrameLatencyWaitableObject(); }
-        HRESULT STDMETHODCALLTYPE SetMatrixTransform(const DXGI_MATRIX_3X2_F* p) override { return m_inner->SetMatrixTransform(p); }
-        HRESULT STDMETHODCALLTYPE GetMatrixTransform(DXGI_MATRIX_3X2_F* p) override { return m_inner->GetMatrixTransform(p); }
+        HRESULT STDMETHODCALLTYPE SetSourceSize(UINT w, UINT h) override { IDXGISwapChain4* c = Inner(); return c ? c->SetSourceSize(w, h) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetSourceSize(UINT* w, UINT* h) override { IDXGISwapChain4* c = Inner(); return c ? c->GetSourceSize(w, h) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE SetMaximumFrameLatency(UINT m) override { IDXGISwapChain4* c = Inner(); return c ? c->SetMaximumFrameLatency(m) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetMaximumFrameLatency(UINT* m) override { IDXGISwapChain4* c = Inner(); return c ? c->GetMaximumFrameLatency(m) : E_FAIL; }
+        HANDLE  STDMETHODCALLTYPE GetFrameLatencyWaitableObject() override { IDXGISwapChain4* c = Inner(); return c ? c->GetFrameLatencyWaitableObject() : nullptr; }
+        HRESULT STDMETHODCALLTYPE SetMatrixTransform(const DXGI_MATRIX_3X2_F* p) override { IDXGISwapChain4* c = Inner(); return c ? c->SetMatrixTransform(p) : E_FAIL; }
+        HRESULT STDMETHODCALLTYPE GetMatrixTransform(DXGI_MATRIX_3X2_F* p) override { IDXGISwapChain4* c = Inner(); return c ? c->GetMatrixTransform(p) : E_FAIL; }
 
         // IDXGISwapChain3 ---------------------------------------------------
-        UINT    STDMETHODCALLTYPE GetCurrentBackBufferIndex() override { return m_inner->GetCurrentBackBufferIndex(); }
-        HRESULT STDMETHODCALLTYPE CheckColorSpaceSupport(DXGI_COLOR_SPACE_TYPE c, UINT* s) override { return m_inner->CheckColorSpaceSupport(c, s); }
+        UINT    STDMETHODCALLTYPE GetCurrentBackBufferIndex() override { IDXGISwapChain4* c = Inner(); return c ? c->GetCurrentBackBufferIndex() : 0; }
+        HRESULT STDMETHODCALLTYPE CheckColorSpaceSupport(DXGI_COLOR_SPACE_TYPE c, UINT* s) override { IDXGISwapChain4* i = Inner(); return i ? i->CheckColorSpaceSupport(c, s) : E_FAIL; }
         HRESULT STDMETHODCALLTYPE SetColorSpace1(DXGI_COLOR_SPACE_TYPE c) override
         {
-            const HRESULT hr = m_inner->SetColorSpace1(c);
+            IDXGISwapChain4* inner = Inner();
+            if (!inner) return E_FAIL;
+            const HRESULT hr = inner->SetColorSpace1(c);
             if (SUCCEEDED(hr)) OnColorSpaceChanged(c);
             return hr;
         }
         HRESULT STDMETHODCALLTYPE ResizeBuffers1(UINT bc, UINT w, UINT h, DXGI_FORMAT f, UINT fl, const UINT* nodeMask, IUnknown* const* pQueues) override
         {
+            IDXGISwapChain4* inner = Inner();
+            if (!inner) return E_FAIL;
             __try
             {
                 PreResizeCleanup();
-                const HRESULT hr = m_inner->ResizeBuffers1(bc, w, h, f, fl, nodeMask, pQueues);
-                if (SUCCEEDED(hr)) PostResizeRebuild(m_inner);
+                const HRESULT hr = inner->ResizeBuffers1(bc, w, h, f, fl, nodeMask, pQueues);
+                if (SUCCEEDED(hr)) PostResizeRebuild(inner);
                 return hr;
             }
             __except (EXCEPTION_EXECUTE_HANDLER)
             {
                 LOG_ERR("dx12: wrapper ResizeBuffers1 crashed during overlay rebuild - skipped");
-                return m_inner->ResizeBuffers1(bc, w, h, f, fl, nodeMask, pQueues);
+                return inner->ResizeBuffers1(bc, w, h, f, fl, nodeMask, pQueues);
             }
         }
 
         // IDXGISwapChain4 ---------------------------------------------------
-        HRESULT STDMETHODCALLTYPE SetHDRMetaData(DXGI_HDR_METADATA_TYPE t, UINT s, void* d) override { return m_inner->SetHDRMetaData(t, s, d); }
+        HRESULT STDMETHODCALLTYPE SetHDRMetaData(DXGI_HDR_METADATA_TYPE t, UINT s, void* d) override { IDXGISwapChain4* c = Inner(); return c ? c->SetHDRMetaData(t, s, d) : E_FAIL; }
 
     private:
         IDXGISwapChain4* m_inner;
@@ -1402,6 +1445,16 @@ namespace trinity::hooks
     // Replace *pp (the real swapchain the game just created) with a wrapper that
     // owns it, so every Present routes through us first. hwnd is the window the
     // swapchain was created for - used to ignore auxiliary windows.
+    //
+    // The wrapper is a STABLE PROXY: the first wrap allocates the wrapper object
+    // and the game caches that pointer; on every later recreation (Streamline
+    // rebuilds the chain for any display-settings change / FG toggle) we keep the
+    // SAME wrapper object and only retarget its inner chain. Handing out a fresh
+    // wrapper per recreation would leave the game's cached pointer dangling
+    // (use-after-free) and the next Present would crash - the exact "menu works,
+    // applying settings crashes" symptom.
+    static WrappedIDXGISwapChain* g_wrapperProxy = nullptr;
+
     static void WrapSwapChain(IDXGISwapChain1** pp, HWND hwnd)
     {
         if (!pp || !*pp) return;
@@ -1423,13 +1476,25 @@ namespace trinity::hooks
         if (FAILED((*pp)->QueryInterface(IID_PPV_ARGS(&inner))) || !inner)
             return; // need full IDXGISwapChain4 to wrap safely; else leave native
 
-        // Transfer the caller's ref to the wrapper: QI added a ref (inner), drop
-        // the raw ref, hand back the wrapper (ref=1) which owns inner.
-        (*pp)->Release();
-        auto* wrapper = new WrappedIDXGISwapChain(inner);
-        *pp = static_cast<IDXGISwapChain1*>(wrapper);
-
-        if (hwnd) g_wrappedHwnd = hwnd;
+        if (g_wrapperProxy)
+        {
+            // Recreation: repoint the existing wrapper at the fresh inner chain.
+            // The game still holds (and keeps calling) the ORIGINAL wrapper
+            // pointer, which stays valid - no UAF. Drop the caller's ref on the
+            // fresh inner (the wrapper now owns it).
+            (*pp)->Release();
+            g_wrapperProxy->Retarget(inner);
+            *pp = static_cast<IDXGISwapChain1*>(g_wrapperProxy);
+        }
+        else
+        {
+            // First wrap: transfer the caller's ref to the wrapper (QI added a ref
+            // on inner, drop the raw ref, hand back wrapper ref=1 which owns inner).
+            (*pp)->Release();
+            g_wrapperProxy = new WrappedIDXGISwapChain(inner);
+            *pp = static_cast<IDXGISwapChain1*>(g_wrapperProxy);
+            if (hwnd) g_wrappedHwnd = hwnd;
+        }
 
         // Log the layer on EVERY wrap - the pre-FG chain and the FG-active re-wrap
         // can be different objects. inner->Present in sl.*/nvngx/amd*/xess = a FG
