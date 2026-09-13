@@ -1251,9 +1251,11 @@ namespace trinity::hooks
         // every access must go through an interlocked load, never a raw read.
         IDXGISwapChain4* Inner() const
         {
+            // &m_inner is IDXGISwapChain4* const* here (const method); strip the
+            // const so the interlocked load can operate on the raw pointer slot.
             return static_cast<IDXGISwapChain4*>(
                 InterlockedCompareExchangePointer(
-                    const_cast<void**>(reinterpret_cast<void const**>(&m_inner)), nullptr, nullptr));
+                    reinterpret_cast<void**>(const_cast<IDXGISwapChain4**>(&m_inner)), nullptr, nullptr));
         }
 
         // IUnknown ----------------------------------------------------------
