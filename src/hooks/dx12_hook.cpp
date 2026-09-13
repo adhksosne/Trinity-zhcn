@@ -1272,8 +1272,28 @@ namespace trinity::hooks
         // IDXGISwapChain ----------------------------------------------------
         HRESULT STDMETHODCALLTYPE Present(UINT syncInterval, UINT flags) override
         {
-            const bool drew = RenderOverlay(m_inner, true);
-            const HRESULT hr = m_inner->Present(syncInterval, flags);
+            bool drew = false;
+            __try
+            {
+                drew = RenderOverlay(m_inner, true);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                g_renderDisabled = true;
+            }
+            HRESULT hr;
+            __try
+            {
+                hr = m_inner->Present(syncInterval, flags);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                // Streamline can tear the inner chain down underneath our wrapper
+                // during a display-settings change / FG toggle. Presenting on a
+                // freed chain faults here - swallow it rather than crash the game.
+                LOG_ERR("dx12: wrapper Present faulted (0x%08X) on a recreated chain.", GetExceptionCode());
+                return S_OK;
+            }
             PostPresentDeviceCheck(drew);
             return hr;
         }
@@ -1308,8 +1328,25 @@ namespace trinity::hooks
         HRESULT STDMETHODCALLTYPE GetCoreWindow(REFIID riid, void** pp) override { return m_inner->GetCoreWindow(riid, pp); }
         HRESULT STDMETHODCALLTYPE Present1(UINT syncInterval, UINT flags, const DXGI_PRESENT_PARAMETERS* pp) override
         {
-            const bool drew = RenderOverlay(m_inner, true);
-            const HRESULT hr = m_inner->Present1(syncInterval, flags, pp);
+            bool drew = false;
+            __try
+            {
+                drew = RenderOverlay(m_inner, true);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                g_renderDisabled = true;
+            }
+            HRESULT hr;
+            __try
+            {
+                hr = m_inner->Present1(syncInterval, flags, pp);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                LOG_ERR("dx12: wrapper Present1 faulted (0x%08X) on a recreated chain.", GetExceptionCode());
+                return S_OK;
+            }
             PostPresentDeviceCheck(drew);
             return hr;
         }
