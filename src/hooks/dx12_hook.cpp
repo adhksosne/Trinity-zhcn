@@ -942,86 +942,89 @@ namespace trinity::hooks
         if (!g_imguiReady || g_renderDisabled)
             return false;
 
-        // Hook the game's XInput module once it has loaded (no-op thereafter) so
-        // controller input is blocked from the game while the menu is up.
-        hooks::EnsureXInputHooks();
-
-        State& st = State::Get();
-        if (ui::PollMenuToggle())
+        __try
         {
-            st.menuOpen = !st.menuOpen;
-            if (!st.menuOpen)
-                st.menuCloseAt = GetTickCount64(); // keep pad-eat alive briefly
-        }
+            hooks::EnsureXInputHooks();
 
-        game::Teleport::MarkerStatus markerResult{};
-        if (game::Teleport::ConsumeMarkerResult(&markerResult))
-        {
-            if (markerResult == game::Teleport::MarkerStatus::Success)
-                ui::Toast(LOC("Teleported to destination"));
-            else
-                ui::Toast(LOC("Destination teleport failed"));
-        }
-
-        // Marker Teleport hotkey (polled when menu and text captures are not
-        // active). Gated behind st.markerTeleportHotkey, which defaults OFF:
-        // other fast-travel mods commonly bind the same key (F10), so the bind
-        // only starts hijacking input once the user enables the feature.
-        if (!st.menuOpen && !st.textCapture && !st.rebindCapture && st.markerTeleportHotkey)
-        {
-            bool kbdHit = false;
-            if (st.markerTeleportKeyVk != 0)
+            State& st = State::Get();
+            if (ui::PollMenuToggle())
             {
-                static bool s_markerKeyWasDown = false;
-                const bool isDown = (GetAsyncKeyState(st.markerTeleportKeyVk) & 0x8000) != 0;
-                if (isDown && !s_markerKeyWasDown)
-                    kbdHit = true;
-                s_markerKeyWasDown = isDown;
+                st.menuOpen = !st.menuOpen;
+                if (!st.menuOpen)
+                    st.menuCloseAt = GetTickCount64();
             }
 
-            bool padHit = false;
-            if (st.markerTeleportPadMask != 0)
+            game::Teleport::MarkerStatus markerResult{};
+            if (game::Teleport::ConsumeMarkerResult(&markerResult))
             {
-                static bool s_markerPadWasDown = false;
-                const unsigned int pad = ui::PadButtonsWithTriggers();
-                const bool isDown = (pad & st.markerTeleportPadMask) == st.markerTeleportPadMask;
-                if (isDown && !s_markerPadWasDown)
-                    padHit = true;
-                s_markerPadWasDown = isDown;
-            }
-
-            if (kbdHit || padHit)
-            {
-                const auto res = game::Teleport::TeleportToMarker(st.markerFallbackHeight);
-                switch (res)
-                {
-                case game::Teleport::MarkerStatus::Queued:
-                    break;
-                case game::Teleport::MarkerStatus::Success:
+                if (markerResult == game::Teleport::MarkerStatus::Success)
                     ui::Toast(LOC("Teleported to destination"));
-                    break;
-                case game::Teleport::MarkerStatus::NoMarker:
-                    ui::Toast(LOC("No destination found on map"));
-                    break;
-                case game::Teleport::MarkerStatus::NoPlayer:
-                    ui::Toast(LOC("Player not ready"));
-                    break;
-                case game::Teleport::MarkerStatus::InvalidCoordinates:
-                    ui::Toast(LOC("Invalid destination coordinates"));
-                    break;
-                case game::Teleport::MarkerStatus::UnsafeContext:
-                    ui::Toast(LOC("Unsafe destination context"));
-                    break;
-                default:
+                else
                     ui::Toast(LOC("Destination teleport failed"));
-                    break;
+            }
+
+            if (!st.menuOpen && !st.textCapture && !st.rebindCapture && st.markerTeleportHotkey)
+            {
+                bool kbdHit = false;
+                if (st.markerTeleportKeyVk != 0)
+                {
+                    static bool s_markerKeyWasDown = false;
+                    const bool isDown = (GetAsyncKeyState(st.markerTeleportKeyVk) & 0x8000) != 0;
+                    if (isDown && !s_markerKeyWasDown)
+                        kbdHit = true;
+                    s_markerKeyWasDown = isDown;
+                }
+
+                bool padHit = false;
+                if (st.markerTeleportPadMask != 0)
+                {
+                    static bool s_markerPadWasDown = false;
+                    const unsigned int pad = ui::PadButtonsWithTriggers();
+                    const bool isDown = (pad & st.markerTeleportPadMask) == st.markerTeleportPadMask;
+                    if (isDown && !s_markerPadWasDown)
+                        padHit = true;
+                    s_markerPadWasDown = isDown;
+                }
+
+                if (kbdHit || padHit)
+                {
+                    const auto res = game::Teleport::TeleportToMarker(st.markerFallbackHeight);
+                    switch (res)
+                    {
+                    case game::Teleport::MarkerStatus::Queued:
+                        break;
+                    case game::Teleport::MarkerStatus::Success:
+                        ui::Toast(LOC("Teleported to destination"));
+                        break;
+                    case game::Teleport::MarkerStatus::NoMarker:
+                        ui::Toast(LOC("No destination found on map"));
+                        break;
+                    case game::Teleport::MarkerStatus::NoPlayer:
+                        ui::Toast(LOC("Player not ready"));
+                        break;
+                    case game::Teleport::MarkerStatus::InvalidCoordinates:
+                        ui::Toast(LOC("Invalid destination coordinates"));
+                        break;
+                    case game::Teleport::MarkerStatus::UnsafeContext:
+                        ui::Toast(LOC("Unsafe destination context"));
+                        break;
+                    default:
+                        ui::Toast(LOC("Destination teleport failed"));
+                        break;
+                    }
                 }
             }
-        }
 
-        if (!gui::WantsDraw())
+            if (!gui::WantsDraw())
+            {
+                ImGui::GetIO().MouseDrawCursor = false;
+                return false;
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
         {
-            ImGui::GetIO().MouseDrawCursor = false;
+            LOG_ERR("Overlay: game-system poll crashed (0x%08X) - frame skipped.",
+                    GetExceptionCode());
             return false;
         }
 
