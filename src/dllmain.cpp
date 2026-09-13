@@ -13,6 +13,7 @@
 static HMODULE g_module = nullptr;
 static uintptr_t g_modBase = 0;
 static uintptr_t g_modEnd  = 0;
+static volatile LONG s_dumpsWritten = 0;
 
 static void AppendCrashReport(const char* report)
 {
@@ -76,22 +77,6 @@ static const char* GetExceptionCodeName(DWORD code)
     }
 }
 
-static PVOID CALLBACK LiteFunctionTableAccess64(HANDLE, DWORD64 addr)
-{
-    DWORD64 base = 0;
-    return reinterpret_cast<PVOID>(RtlLookupFunctionEntry(addr, &base, nullptr));
-}
-
-static DWORD64 CALLBACK LiteGetModuleBase64(HANDLE, DWORD64 addr)
-{
-    HMODULE mod = nullptr;
-    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCSTR>(addr), &mod) && mod)
-        return reinterpret_cast<DWORD64>(mod);
-    return 0;
-}
-
 static void LogCallStack(CONTEXT ctx, char* buf, size_t bufSize)
 {
     STACKFRAME64 frame{};
@@ -108,7 +93,7 @@ static void LogCallStack(CONTEXT ctx, char* buf, size_t bufSize)
     int count = 0;
     while (count < 16 && StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread,
                                      &frame, &ctx, nullptr,
-                                     LiteFunctionTableAccess64, LiteGetModuleBase64, nullptr))
+                                     SymFunctionTableAccess64, SymGetModuleBase64, nullptr))
     {
         if (frame.AddrPC.Offset == 0) break;
 
@@ -318,6 +303,29 @@ static LONG WINAPI VectoredCrashLogger(PEXCEPTION_POINTERS ep)
 
     AppendCrashReport(report);
 
+    // Keep one full dump of a foreign fault for post-mortem analysis.
+    if (InterlockedCompareExchange(&s_dumpsWritten, 1, 0) == 0)
+    {
+        char dpath[MAX_PATH];
+        if (GetModuleFileNameA(g_module, dpath, MAX_PATH))
+        {
+            char* slash2 = strrchr(dpath, '\\');
+            if (slash2) *(slash2 + 1) = '\0';
+            strcat_s(dpath, "Trinity_Crash.dmp");
+            HANDLE f = CreateFileA(dpath, GENERIC_WRITE, 0, nullptr,
+                                   CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (f != INVALID_HANDLE_VALUE)
+            {
+                MINIDUMP_EXCEPTION_INFORMATION mei{};
+                mei.ThreadId          = GetCurrentThreadId();
+                mei.ExceptionPointers = ep;
+                mei.ClientPointers    = FALSE;
+                MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), f,
+                                  MiniDumpNormal, &mei, nullptr, nullptr);
+                CloseHandle(f);
+            }
+        }
+    }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -359,7 +367,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
             }
         }
 
-        AddVectoredExceptionHandler(0, VectoredCrashLogger); // lightweight: stack-only, no dumps/thread-suspend
+        AddVectoredExceptionHandler(0, VectoredCrashLogger); // last-chance
         SetUnhandledExceptionFilter(CrashHandler);
         // Do real work off the loader lock.
         CreateThread(nullptr, 0, MainThread, nullptr, 0, nullptr);
