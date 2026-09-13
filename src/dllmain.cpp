@@ -359,7 +359,11 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
             }
         }
 
-        AddVectoredExceptionHandler(0, VectoredCrashLogger); // last-chance
+        // VEH disabled: even lightweight VEH logging (file I/O + stack walk) runs
+        // before the game own SEH handlers and disrupts exception recovery during
+        // display settings changes. The game uses Sentry (sentry.dll) for crash
+        // reporting, so Trinity crash logging is redundant here.
+        // AddVectoredExceptionHandler(0, VectoredCrashLogger);
         SetUnhandledExceptionFilter(CrashHandler);
         // Do real work off the loader lock.
         CreateThread(nullptr, 0, MainThread, nullptr, 0, nullptr);
